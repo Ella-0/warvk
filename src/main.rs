@@ -1,31 +1,22 @@
 use vulkano::{
-	buffer::{CpuAccessibleBuffer, BufferUsage},
-	command_buffer::{AutoCommandBufferBuilder, DynamicState},
-	device::{Device, DeviceExtensions},
-	framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
-	image::{ImageUsage, SwapchainImage},
-	instance::{Instance, InstanceExtensions, PhysicalDevice},
-	pipeline::{
-		viewport::{Viewport},
-		GraphicsPipeline
-	},
-	swapchain,
+    buffer::{BufferUsage, CpuAccessibleBuffer},
+    command_buffer::{AutoCommandBufferBuilder, DynamicState},
+    device::{Device, DeviceExtensions},
+    framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
+    image::{ImageUsage, SwapchainImage},
+    instance::{Instance, InstanceExtensions, PhysicalDevice},
+    pipeline::{viewport::Viewport, GraphicsPipeline},
+    swapchain,
     swapchain::{
-		display::{Display, DisplayPlane},
-		Swapchain,
-		ColorSpace,
-		Surface,
-		SurfaceTransform,
-		PresentMode,
-		FullscreenExclusive,
-		SwapchainCreationError,
-		AcquireError,
-	},
-	sync,
-	sync::{FlushError, GpuFuture},
+        display::{Display, DisplayPlane},
+        AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
+        Swapchain, SwapchainCreationError,
+    },
+    sync,
+    sync::{FlushError, GpuFuture},
 };
 
-use std::sync::{Arc};
+use std::sync::Arc;
 
 fn required_extensions() -> InstanceExtensions {
     let ideal = InstanceExtensions {
@@ -50,16 +41,18 @@ fn required_extensions() -> InstanceExtensions {
 }
 
 mod kbd;
+mod wayland;
 
 fn main() {
+    println!("╔══ WaRVk\n║ A Vulkan based Wayland compositor\n║ Written in Rust");
 
-	println!("╔══ WaRVk\n║ A Vulkan based Wayland compositor\n║ Written in Rust");
-	
-	kbd::init();
+    let kbd_rx = kbd::init();
+
+    wayland::init();
 
     let supported_extensions =
         InstanceExtensions::supported_by_core().expect("failed to retrieve supported extensions");
-    println!("Supported extensions: {:?}", supported_extensions);
+    println!("╠══ Supported extensions: {:?}", supported_extensions);
 
     let required_extensions = required_extensions();
 
@@ -68,27 +61,37 @@ fn main() {
     let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
 
     println!(
-        "Using device: {} (type: {:?})",
+        "╠══ Using device: {} (type: {:?})",
         physical.name(),
         physical.ty()
     );
 
-	let display = Display::enumerate(physical).next().expect("No Displays Found");
-	println!("Found display: {}", display.name());
+    let display = Display::enumerate(physical)
+        .next()
+        .expect("No Displays Found");
+    println!("╠══ Found display: {}", display.name());
 
-	let display_modes = display.display_modes();
-	for display_mode in display_modes {
-		println!("\thas mode: {}, {:?}", display_mode.refresh_rate(), display_mode.visible_region());
-	}
+    let display_modes = display.display_modes();
+    for display_mode in display_modes {
+        println!(
+            "║ \thas mode: {}, {:?}",
+            display_mode.refresh_rate(),
+            display_mode.visible_region()
+        );
+    }
 
-	let display_mode = display.display_modes().next().expect("Display has no modes");
+    let display_mode = display
+        .display_modes()
+        .next()
+        .expect("║ Display has no modes");
 
-	let mut display_planes = DisplayPlane::enumerate(physical);
-	println!("Found {} planes", display_planes.len());
+    let mut display_planes = DisplayPlane::enumerate(physical);
+    println!("║ Found {} planes", display_planes.len());
 
-	let display_plane = display_planes.next().expect("No planes");
+    let display_plane = display_planes.next().expect("No planes");
 
-	let surface = Surface::<()>::from_display_mode(&display_mode, &display_plane).expect("Failed to create surface");
+    let surface = Surface::<()>::from_display_mode(&display_mode, &display_plane)
+        .expect("Failed to create surface");
 
     let queue_family = physical
         .queue_families()
@@ -98,7 +101,7 @@ fn main() {
         })
         .unwrap();
 
-	let device_ext = DeviceExtensions {
+    let device_ext = DeviceExtensions {
         khr_swapchain: true,
         ..DeviceExtensions::none()
     };
@@ -110,7 +113,7 @@ fn main() {
     )
     .unwrap();
 
-	let queue = queues.next().unwrap();
+    let queue = queues.next().unwrap();
 
     let (mut swapchain, images) = {
         // Querying the capabilities of the surface. When we create the swapchain we can only
@@ -156,27 +159,25 @@ fn main() {
         .unwrap()
     };
 
-	#[derive(Default, Debug, Clone)]
+    #[derive(Default, Debug, Clone)]
     struct Vertex {
         position: [f32; 2],
     }
     vulkano::impl_vertex!(Vertex, position);
-	let vertex_buffer = {
-
-
+    let vertex_buffer = {
         CpuAccessibleBuffer::from_iter(
             device.clone(),
             BufferUsage::all(),
             false,
             [
                 Vertex {
-                    position: [-0.5, -0.25],
+                    position: [-0.5, 0.5],
                 },
                 Vertex {
-                    position: [0.0, 0.5],
+                    position: [0.0, -0.5],
                 },
                 Vertex {
-                    position: [0.25, -0.1],
+                    position: [0.5, 0.5],
                 },
             ]
             .iter()
@@ -185,7 +186,7 @@ fn main() {
         .unwrap()
     };
 
-	mod vs {
+    mod vs {
         vulkano_shaders::shader! {
             ty: "vertex",
             src: "
@@ -281,13 +282,21 @@ fn main() {
     let mut framebuffers =
         window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
 
-	let mut recreate_swapchain = false;
+    let mut recreate_swapchain = false;
 
-	let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-	let mut should_close = true;
+    let mut should_close = false;
 
-	while !should_close {
+    while !should_close {
+        if let Ok(event) = kbd_rx.try_recv() {
+            if (kbd::is_key_press(event.value)) {
+                let text = kbd::get_key_text(event.code, 0);
+                if (text == "<ESC>") {
+                    should_close = true;
+                }
+            }
+        }
 
         // It is important to call this function from time to time, otherwise resources will keep
         // accumulating and you will eventually reach an out of memory error.
@@ -300,23 +309,19 @@ fn main() {
         if recreate_swapchain {
             // Get the new dimensions of the window.
             let dimensions: [u32; 2] = display_mode.visible_region();
-            let (new_swapchain, new_images) =
-                match swapchain.recreate_with_dimensions(dimensions) {
-                    Ok(r) => r,
-                    // This error tends to happen when the user is manually resizing the window.
-                    // Simply restarting the loop is the easiest way to fix this issue.
-                    Err(SwapchainCreationError::UnsupportedDimensions) => return,
-                    Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-                };
+            let (new_swapchain, new_images) = match swapchain.recreate_with_dimensions(dimensions) {
+                Ok(r) => r,
+                // This error tends to happen when the user is manually resizing the window.
+                // Simply restarting the loop is the easiest way to fix this issue.
+                Err(SwapchainCreationError::UnsupportedDimensions) => return,
+                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+            };
 
             swapchain = new_swapchain;
             // Because framebuffers contains an Arc on the old swapchain, we need to
             // recreate framebuffers as well.
-            framebuffers = window_size_dependent_setup(
-                &new_images,
-                render_pass.clone(),
-                &mut dynamic_state,
-            );
+            framebuffers =
+                window_size_dependent_setup(&new_images, render_pass.clone(), &mut dynamic_state);
             recreate_swapchain = false;
         }
 
@@ -356,11 +361,9 @@ fn main() {
         //
         // Note that we have to pass a queue family when we create the command buffer. The command
         // buffer will only be executable on that given queue family.
-        let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
-            device.clone(),
-            queue.family(),
-        )
-        .unwrap();
+        let mut builder =
+            AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
+                .unwrap();
 
         builder
             // Before we can draw, we have to *enter a render pass*. There are two methods to do
@@ -421,9 +424,8 @@ fn main() {
                 previous_frame_end = Some(sync::now(device.clone()).boxed());
             }
         }
-	}
+    }
 }
-
 
 fn window_size_dependent_setup(
     images: &[Arc<SwapchainImage<()>>],

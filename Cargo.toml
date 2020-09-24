@@ -9,5 +9,5 @@ edition = "2018"
 [dependencies]
 vulkano = "0.19"
 vulkano-shaders = "0.19"
-xkbcommon = "0.4.0"
+wayland-server = "0.28"
 
