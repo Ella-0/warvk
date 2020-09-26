@@ -1,5 +1,5 @@
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, BufferAccess},
+    buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
     device::{Device, DeviceExtensions, Queue, QueuesIter},
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
@@ -63,7 +63,8 @@ pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
             physical_device.ty()
         );
 
-        if physical_device_ret.is_none() || physical_device.ty() == PhysicalDeviceType::DiscreteGpu
+        if physical_device_ret.is_none()
+        /*|| physical_device.ty() == PhysicalDeviceType::DiscreteGpu*/
         {
             physical_device_ret = Some(physical_device);
         }
@@ -320,24 +321,24 @@ pub fn create_framebuffers(
 }
 
 pub struct VkCtx {
-	surface: Arc<Surface<()>>,
-	device: Arc<Device>,
-	queue: Arc<Queue>,
-	dimensions: [u32; 2],
-	swapchain: Arc<Swapchain<()>>,
-	swapchain_images: Vec<Arc<SwapchainImage<()>>>,
-	dynamic_state: DynamicState,
-	render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-	vertex_buffer: Arc<dyn BufferAccess + Send + Sync>,
-	pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
-	framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
-	recreate_swapchain: bool,
-	previous_frame_end: Option<Box<GpuFuture>>
+    surface: Arc<Surface<()>>,
+    device: Arc<Device>,
+    queue: Arc<Queue>,
+    dimensions: [u32; 2],
+    swapchain: Arc<Swapchain<()>>,
+    swapchain_images: Vec<Arc<SwapchainImage<()>>>,
+    dynamic_state: DynamicState,
+    render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+    vertex_buffer: Arc<dyn BufferAccess + Send + Sync>,
+    pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
+    recreate_swapchain: bool,
+    previous_frame_end: Option<Box<GpuFuture>>,
 }
 
 impl VkCtx {
-	pub fn init() -> VkCtx {
-		let instance = create_instance();
+    pub fn init() -> VkCtx {
+        let instance = create_instance();
 
         let physical = choose_physical_device(&instance);
 
@@ -407,30 +408,31 @@ impl VkCtx {
             reference: None,
         };
 
-        let mut framebuffers = create_framebuffers(&images, render_pass.clone(), &mut dynamic_state);
+        let mut framebuffers =
+            create_framebuffers(&images, render_pass.clone(), &mut dynamic_state);
 
         let mut recreate_swapchain = false;
 
         let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-		Self {
-			surface,
-			device,
-			queue,
-			dimensions,
-			swapchain,
-			swapchain_images: images,
-			vertex_buffer,
-			render_pass,
-			pipeline,
-			dynamic_state,
-			framebuffers,
-			recreate_swapchain,
-			previous_frame_end
-		}
-	}
+        Self {
+            surface,
+            device,
+            queue,
+            dimensions,
+            swapchain,
+            swapchain_images: images,
+            vertex_buffer,
+            render_pass,
+            pipeline,
+            dynamic_state,
+            framebuffers,
+            recreate_swapchain,
+            previous_frame_end,
+        }
+    }
 
-	pub fn run(&mut self) {
+    pub fn run(&mut self) {
         // It is important to call this function from time to time, otherwise resources will keep
         // accumulating and you will eventually reach an out of memory error.
         // Calling this function polls various fences in order to determine what the GPU has
@@ -442,19 +444,23 @@ impl VkCtx {
         if self.recreate_swapchain {
             // Get the new dimensions of the window.
             let dimensions: [u32; 2] = self.dimensions;
-            let (new_swapchain, new_images) = match self.swapchain.recreate_with_dimensions(dimensions) {
-                Ok(r) => r,
-                // This error tends to happen when the user is manually resizing the window.
-                // Simply restarting the loop is the easiest way to fix this issue.
-                Err(SwapchainCreationError::UnsupportedDimensions) => return,
-                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-            };
+            let (new_swapchain, new_images) =
+                match self.swapchain.recreate_with_dimensions(dimensions) {
+                    Ok(r) => r,
+                    // This error tends to happen when the user is manually resizing the window.
+                    // Simply restarting the loop is the easiest way to fix this issue.
+                    Err(SwapchainCreationError::UnsupportedDimensions) => return,
+                    Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+                };
 
             self.swapchain = new_swapchain;
             // Because framebuffers contains an Arc on the old swapchain, we need to
             // recreate framebuffers as well.
-            self.framebuffers =
-                create_framebuffers(&new_images, self.render_pass.clone(), &mut self.dynamic_state);
+            self.framebuffers = create_framebuffers(
+                &new_images,
+                self.render_pass.clone(),
+                &mut self.dynamic_state,
+            );
             self.recreate_swapchain = false;
         }
 
@@ -494,9 +500,11 @@ impl VkCtx {
         //
         // Note that we have to pass a queue family when we create the command buffer. The command
         // buffer will only be executable on that given queue family.
-        let mut builder =
-            AutoCommandBufferBuilder::primary_one_time_submit(self.device.clone(), self.queue.family())
-                .unwrap();
+        let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
+            self.device.clone(),
+            self.queue.family(),
+        )
+        .unwrap();
 
         builder
             // Before we can draw, we have to *enter a render pass*. There are two methods to do
@@ -529,7 +537,8 @@ impl VkCtx {
         // Finish building the command buffer by calling `build`.
         let command_buffer = builder.build().unwrap();
 
-        let future = self.previous_frame_end
+        let future = self
+            .previous_frame_end
             .take()
             .unwrap()
             .join(acquire_future)
@@ -557,5 +566,5 @@ impl VkCtx {
                 self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
             }
         }
-	}
+    }
 }
