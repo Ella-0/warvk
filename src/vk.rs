@@ -1,5 +1,5 @@
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer},
+    buffer::{BufferUsage, CpuAccessibleBuffer, BufferAccess},
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
     device::{Device, DeviceExtensions, Queue, QueuesIter},
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
@@ -320,6 +320,16 @@ pub fn create_framebuffers(
 }
 
 struct VkCtx {
+	surface: Arc<Surface<()>>,
+	device: Arc<Device>,
+	queue: Arc<Queue>,
+	dimensions: [u32; 2],
+	swapchain: Arc<Swapchain<()>>,
+	swapchain_images: Vec<Arc<SwapchainImage<()>>>,
+	dynamic_state: DynamicState,
+	render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+	vertex_buffer: Arc<dyn BufferAccess + Send + Sync>,
+	pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 	framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
 	recreate_swapchain: bool,
 	previous_frame_end: Option<Box<GpuFuture>>
@@ -404,6 +414,16 @@ impl VkCtx {
         let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
 		Self {
+			surface,
+			device,
+			queue,
+			dimensions,
+			swapchain,
+			swapchain_images: images,
+			vertex_buffer,
+			render_pass,
+			pipeline,
+			dynamic_state,
 			framebuffers,
 			recreate_swapchain,
 			previous_frame_end
@@ -419,10 +439,10 @@ impl VkCtx {
 
         // Whenever the window resizes we need to recreate everything dependent on the window size.
         // In this example that includes the swapchain, the framebuffers and the dynamic state viewport.
-        if recreate_swapchain {
+        if self.recreate_swapchain {
             // Get the new dimensions of the window.
-            let dimensions: [u32; 2] = display_mode.visible_region();
-            let (new_swapchain, new_images) = match swapchain.recreate_with_dimensions(dimensions) {
+            let dimensions: [u32; 2] = self.dimensions;
+            let (new_swapchain, new_images) = match self.swapchain.recreate_with_dimensions(dimensions) {
                 Ok(r) => r,
                 // This error tends to happen when the user is manually resizing the window.
                 // Simply restarting the loop is the easiest way to fix this issue.
@@ -430,12 +450,12 @@ impl VkCtx {
                 Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
             };
 
-            swapchain = new_swapchain;
+            self.swapchain = new_swapchain;
             // Because framebuffers contains an Arc on the old swapchain, we need to
             // recreate framebuffers as well.
-            framebuffers =
-                create_framebuffers(&new_images, render_pass.clone(), &mut dynamic_state);
-            recreate_swapchain = false;
+            self.framebuffers =
+                create_framebuffers(&new_images, self.render_pass.clone(), &mut self.dynamic_state);
+            self.recreate_swapchain = false;
         }
 
         // Before we can draw on the output, we have to *acquire* an image from the swapchain. If
@@ -446,10 +466,10 @@ impl VkCtx {
         // This function can block if no image is available. The parameter is an optional timeout
         // after which the function call will return an error.
         let (image_num, suboptimal, acquire_future) =
-            match swapchain::acquire_next_image(swapchain.clone(), None) {
+            match swapchain::acquire_next_image(self.swapchain.clone(), None) {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
-                    recreate_swapchain = true;
+                    self.recreate_swapchain = true;
                     return;
                 }
                 Err(e) => panic!("Failed to acquire next image: {:?}", e),
@@ -459,7 +479,7 @@ impl VkCtx {
         // will still work, but it may not display correctly. With some drivers this can be when
         // the window resizes, but it may not cause the swapchain to become out of date.
         if suboptimal {
-            recreate_swapchain = true;
+            self.recreate_swapchain = true;
         }
 
         // Specify the color to clear the framebuffer with i.e. blue
@@ -475,7 +495,7 @@ impl VkCtx {
         // Note that we have to pass a queue family when we create the command buffer. The command
         // buffer will only be executable on that given queue family.
         let mut builder =
-            AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
+            AutoCommandBufferBuilder::primary_one_time_submit(self.device.clone(), self.queue.family())
                 .unwrap();
 
         builder
@@ -486,16 +506,16 @@ impl VkCtx {
             // The third parameter builds the list of values to clear the attachments with. The API
             // is similar to the list of attachments when building the framebuffers, except that
             // only the attachments that use `load: Clear` appear in the list.
-            .begin_render_pass(framebuffers[image_num].clone(), false, clear_values)
+            .begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values)
             .unwrap()
             // We are now inside the first subpass of the render pass. We add a draw command.
             //
             // The last two parameters contain the list of resources to pass to the shaders.
             // Since we used an `EmptyPipeline` object, the objects have to be `()`.
             .draw(
-                pipeline.clone(),
-                &dynamic_state,
-                vec![vertex_buffer.clone()],
+                self.pipeline.clone(),
+                &self.dynamic_state,
+                vec![self.vertex_buffer.clone()],
                 (),
                 (),
             )
@@ -509,11 +529,11 @@ impl VkCtx {
         // Finish building the command buffer by calling `build`.
         let command_buffer = builder.build().unwrap();
 
-        let future = previous_frame_end
+        let future = self.previous_frame_end
             .take()
             .unwrap()
             .join(acquire_future)
-            .then_execute(queue.clone(), command_buffer)
+            .then_execute(self.queue.clone(), command_buffer)
             .unwrap()
             // The color output is now expected to contain our triangle. But in order to show it on
             // the screen, we have to *present* the image by calling `present`.
@@ -521,20 +541,20 @@ impl VkCtx {
             // This function does not actually present the image immediately. Instead it submits a
             // present command at the end of the queue. This means that it will only be presented once
             // the GPU has finished executing the command buffer that draws the triangle.
-            .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
+            .then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_num)
             .then_signal_fence_and_flush();
 
         match future {
             Ok(future) => {
-                previous_frame_end = Some(future.boxed());
+                self.previous_frame_end = Some(future.boxed());
             }
             Err(FlushError::OutOfDate) => {
-                recreate_swapchain = true;
-                previous_frame_end = Some(sync::now(device.clone()).boxed());
+                self.recreate_swapchain = true;
+                self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
             }
             Err(e) => {
                 println!("Failed to flush future: {:?}", e);
-                previous_frame_end = Some(sync::now(device.clone()).boxed());
+                self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
             }
         }
 	}
