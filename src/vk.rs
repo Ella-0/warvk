@@ -319,7 +319,7 @@ pub fn create_framebuffers(
         .collect::<Vec<_>>()
 }
 
-struct VkCtx {
+pub struct VkCtx {
 	surface: Arc<Surface<()>>,
 	device: Arc<Device>,
 	queue: Arc<Queue>,
@@ -336,7 +336,7 @@ struct VkCtx {
 }
 
 impl VkCtx {
-	fn init() -> VkCtx {
+	pub fn init() -> VkCtx {
 		let instance = create_instance();
 
         let physical = choose_physical_device(&instance);
@@ -430,7 +430,7 @@ impl VkCtx {
 		}
 	}
 
-	fn run(&mut self) {
+	pub fn run(&mut self) {
         // It is important to call this function from time to time, otherwise resources will keep
         // accumulating and you will eventually reach an out of memory error.
         // Calling this function polls various fences in order to determine what the GPU has
