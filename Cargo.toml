@@ -10,4 +10,4 @@ edition = "2018"
 vulkano = "0.19"
 vulkano-shaders = "0.19"
 wayland-server = "0.28"
-
+calloop = "0.6.4"

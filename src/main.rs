@@ -4,11 +4,11 @@ use vulkano::{
     device::{Device, DeviceExtensions},
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
-    instance::{Instance, InstanceExtensions, PhysicalDevice},
-    pipeline::{viewport::Viewport, GraphicsPipeline},
+    instance::{Instance, InstanceExtensions, PhysicalDevice, PhysicalDeviceType, QueueFamily},
+    pipeline::{viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract},
     swapchain,
     swapchain::{
-        display::{Display, DisplayPlane},
+        display::{Display, DisplayMode, DisplayPlane},
         AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
         Swapchain, SwapchainCreationError,
     },
@@ -18,152 +18,55 @@ use vulkano::{
 
 use std::sync::Arc;
 
-fn required_extensions() -> InstanceExtensions {
-    let ideal = InstanceExtensions {
-        khr_surface: true,
-        khr_display: true,
-        khr_xlib_surface: true,
-        khr_xcb_surface: true,
-        khr_wayland_surface: true,
-        khr_android_surface: true,
-        khr_win32_surface: true,
-        mvk_ios_surface: true,
-        mvk_macos_surface: true,
-        khr_get_physical_device_properties2: true,
-        khr_get_surface_capabilities2: true,
-        ..InstanceExtensions::none()
-    };
-
-    match InstanceExtensions::supported_by_core() {
-        Ok(supported) => supported.intersection(&ideal),
-        Err(_) => InstanceExtensions::none(),
-    }
-}
-
 mod kbd;
-mod wayland;
+mod wlr;
+
+mod vk;
+
+use vk::*;
 
 fn main() {
     println!("╔══ WaRVk\n║ A Vulkan based Wayland compositor\n║ Written in Rust");
 
     let kbd_rx = kbd::init();
 
-    wayland::init();
+    wlr::init();
 
-    let supported_extensions =
-        InstanceExtensions::supported_by_core().expect("failed to retrieve supported extensions");
-    println!("╠══ Supported extensions: {:?}", supported_extensions);
+    let instance = create_instance();
 
-    let required_extensions = required_extensions();
+    let physical = choose_physical_device(&instance);
 
-    let instance = Instance::new(None, &required_extensions, None).unwrap();
+    let display = choose_display(physical);
 
-    let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
+    let display_mode = choose_display_mode(display);
 
-    println!(
-        "╠══ Using device: {} (type: {:?})",
-        physical.name(),
-        physical.ty()
-    );
-
-    let display = Display::enumerate(physical)
-        .next()
-        .expect("No Displays Found");
-    println!("╠══ Found display: {}", display.name());
-
-    let display_modes = display.display_modes();
-    for display_mode in display_modes {
-        println!(
-            "║ \thas mode: {}, {:?}",
-            display_mode.refresh_rate(),
-            display_mode.visible_region()
-        );
-    }
-
-    let display_mode = display
-        .display_modes()
-        .next()
-        .expect("║ Display has no modes");
-
-    let mut display_planes = DisplayPlane::enumerate(physical);
-    println!("║ Found {} planes", display_planes.len());
-
-    let display_plane = display_planes.next().expect("No planes");
+    let display_plane = choose_display_plane(physical);
 
     let surface = Surface::<()>::from_display_mode(&display_mode, &display_plane)
         .expect("Failed to create surface");
 
-    let queue_family = physical
-        .queue_families()
-        .find(|&q| {
-            // We take the first queue that supports drawing to our window.
-            q.supports_graphics() && surface.is_supported(q).unwrap_or(false)
-        })
-        .unwrap();
+    let queue_family = choose_queue_family(physical, surface.clone());
 
-    let device_ext = DeviceExtensions {
-        khr_swapchain: true,
-        ..DeviceExtensions::none()
-    };
-    let (device, mut queues) = Device::new(
-        physical,
-        physical.supported_features(),
-        &device_ext,
-        [(queue_family, 0.5)].iter().cloned(),
-    )
-    .unwrap();
+    let (device, mut queues) = create_device(physical, queue_family);
 
     let queue = queues.next().unwrap();
 
-    let (mut swapchain, images) = {
-        // Querying the capabilities of the surface. When we create the swapchain we can only
-        // pass values that are allowed by the capabilities.
-        let caps = surface.capabilities(physical).unwrap();
+    let dimensions: [u32; 2] = display_mode.visible_region();
 
-        // The alpha mode indicates how the alpha value of the final image will behave. For example
-        // you can choose whether the window will be opaque or transparent.
-        let alpha = caps.supported_composite_alpha.iter().next().unwrap();
-
-        // Choosing the internal format that the images will have.
-        let format = caps.supported_formats[0].0;
-
-        // The dimensions of the window, only used to initially setup the swapchain.
-        // NOTE:
-        // On some drivers the swapchain dimensions are specified by `caps.current_extent` and the
-        // swapchain size must use these dimensions.
-        // These dimensions are always the same as the window dimensions
-        //
-        // However other drivers dont specify a value i.e. `caps.current_extent` is `None`
-        // These drivers will allow anything but the only sensible value is the window dimensions.
-        //
-        // Because for both of these cases, the swapchain needs to be the window dimensions, we just use that.
-        let dimensions: [u32; 2] = display_mode.visible_region();
-
-        // Please take a look at the docs for the meaning of the parameters we didn't mention.
-        Swapchain::new(
-            device.clone(),
-            surface.clone(),
-            caps.min_image_count,
-            format,
-            dimensions,
-            1,
-            ImageUsage::color_attachment(),
-            &queue,
-            SurfaceTransform::Identity,
-            alpha,
-            PresentMode::Fifo,
-            FullscreenExclusive::Default,
-            true,
-            ColorSpace::SrgbNonLinear,
-        )
-        .unwrap()
-    };
+    let (mut swapchain, images) = create_swapchain(
+        physical,
+        surface.clone(),
+        device.clone(),
+        queue.clone(),
+        dimensions,
+    );
 
     #[derive(Default, Debug, Clone)]
     struct Vertex {
         position: [f32; 2],
     }
     vulkano::impl_vertex!(Vertex, position);
+
     let vertex_buffer = {
         CpuAccessibleBuffer::from_iter(
             device.clone(),
@@ -186,89 +89,9 @@ fn main() {
         .unwrap()
     };
 
-    mod vs {
-        vulkano_shaders::shader! {
-            ty: "vertex",
-            src: "
-				#version 450
-				layout(location = 0) in vec2 position;
-				void main() {
-					gl_Position = vec4(position, 0.0, 1.0);
-				}
-			"
-        }
-    }
+    let render_pass = create_render_pass(device.clone(), swapchain.clone());
 
-    mod fs {
-        vulkano_shaders::shader! {
-            ty: "fragment",
-            src: "
-				#version 450
-				layout(location = 0) out vec4 f_color;
-				void main() {
-					f_color = vec4(1.0, 0.0, 0.0, 1.0);
-				}
-			"
-        }
-    }
-
-    let vs = vs::Shader::load(device.clone()).unwrap();
-    let fs = fs::Shader::load(device.clone()).unwrap();
-
-    let render_pass = Arc::new(
-        vulkano::single_pass_renderpass!(
-            device.clone(),
-            attachments: {
-                // `color` is a custom name we give to the first and only attachment.
-                color: {
-                    // `load: Clear` means that we ask the GPU to clear the content of this
-                    // attachment at the start of the drawing.
-                    load: Clear,
-                    // `store: Store` means that we ask the GPU to store the output of the draw
-                    // in the actual image. We could also ask it to discard the result.
-                    store: Store,
-                    // `format: <ty>` indicates the type of the format of the image. This has to
-                    // be one of the types of the `vulkano::format` module (or alternatively one
-                    // of your structs that implements the `FormatDesc` trait). Here we use the
-                    // same format as the swapchain.
-                    format: swapchain.format(),
-                    // TODO:
-                    samples: 1,
-                }
-            },
-            pass: {
-                // We use the attachment named `color` as the one and only color attachment.
-                color: [color],
-                // No depth-stencil attachment is indicated with empty brackets.
-                depth_stencil: {}
-            }
-        )
-        .unwrap(),
-    );
-
-    let pipeline = Arc::new(
-        GraphicsPipeline::start()
-            // We need to indicate the layout of the vertices.
-            // The type `SingleBufferDefinition` actually contains a template parameter corresponding
-            // to the type of each vertex. But in this code it is automatically inferred.
-            .vertex_input_single_buffer::<Vertex>()
-            // A Vulkan shader can in theory contain multiple entry points, so we have to specify
-            // which one. The `main` word of `main_entry_point` actually corresponds to the name of
-            // the entry point.
-            .vertex_shader(vs.main_entry_point(), ())
-            // The content of the vertex buffer describes a list of triangles.
-            .triangle_list()
-            // Use a resizable viewport set to draw over the entire window
-            .viewports_dynamic_scissors_irrelevant(1)
-            // See `vertex_shader`.
-            .fragment_shader(fs.main_entry_point(), ())
-            // We have to indicate which subpass of which render pass this pipeline is going to be used
-            // in. The pipeline will only be usable from this particular subpass.
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            // Now that our builder is filled, we call `build()` to obtain an actual pipeline.
-            .build(device.clone())
-            .unwrap(),
-    );
+    let pipeline = create_pipeline::<Vertex>(device.clone(), render_pass.clone());
 
     let mut dynamic_state = DynamicState {
         line_width: None,
@@ -279,8 +102,7 @@ fn main() {
         reference: None,
     };
 
-    let mut framebuffers =
-        window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
+    let mut framebuffers = create_framebuffers(&images, render_pass.clone(), &mut dynamic_state);
 
     let mut recreate_swapchain = false;
 
@@ -290,9 +112,9 @@ fn main() {
 
     while !should_close {
         if let Ok(event) = kbd_rx.try_recv() {
-            if (kbd::is_key_press(event.value)) {
+            if kbd::is_key_press(event.value) {
                 let text = kbd::get_key_text(event.code, 0);
-                if (text == "<ESC>") {
+                if text == "<ESC>" {
                     should_close = true;
                 }
             }
@@ -321,7 +143,7 @@ fn main() {
             // Because framebuffers contains an Arc on the old swapchain, we need to
             // recreate framebuffers as well.
             framebuffers =
-                window_size_dependent_setup(&new_images, render_pass.clone(), &mut dynamic_state);
+                create_framebuffers(&new_images, render_pass.clone(), &mut dynamic_state);
             recreate_swapchain = false;
         }
 
@@ -382,7 +204,7 @@ fn main() {
             .draw(
                 pipeline.clone(),
                 &dynamic_state,
-                vertex_buffer.clone(),
+                vec![vertex_buffer.clone()],
                 (),
                 (),
             )
@@ -425,32 +247,4 @@ fn main() {
             }
         }
     }
-}
-
-fn window_size_dependent_setup(
-    images: &[Arc<SwapchainImage<()>>],
-    render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-    dynamic_state: &mut DynamicState,
-) -> Vec<Arc<dyn FramebufferAbstract + Send + Sync>> {
-    let dimensions = images[0].dimensions();
-
-    let viewport = Viewport {
-        origin: [0.0, 0.0],
-        dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-        depth_range: 0.0..1.0,
-    };
-    dynamic_state.viewports = Some(vec![viewport]);
-
-    images
-        .iter()
-        .map(|image| {
-            Arc::new(
-                Framebuffer::start(render_pass.clone())
-                    .add(image.clone())
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-            ) as Arc<dyn FramebufferAbstract + Send + Sync>
-        })
-        .collect::<Vec<_>>()
 }
