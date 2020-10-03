@@ -8,6 +8,7 @@ mod ctx;
 mod pool;
 mod shell;
 mod window_map;
+mod input_handler;
 
 use std::time::Duration;
 
@@ -35,7 +36,7 @@ fn main() {
 
     let mut should_close = false;
 
-    let vk_ctx = Rc::new(RefCell::new(VkCtx::<winit::window::Window>::init()));
+    let vk_ctx = Rc::new(RefCell::new(VkCtx::<()>::init()));
     let wl_ctx = Rc::new(RefCell::new(WlCtx::init(event_loop.handle())));
 
     let mut ctx = ctx::Ctx {

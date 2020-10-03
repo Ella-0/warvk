@@ -126,7 +126,7 @@ pub fn init_shell(
 pub struct SurfaceData {
     pub buffer: Option<Resource<wl_buffer::WlBuffer>>,
 	// make vulkan texture data
-    pub texture: Option<()>,
+    pub texture: Option<Arc<vulkano::image::ImmutableImage<vulkano::format::Format>>>,
 }
 
 fn surface_commit(surface: &Resource<wl_surface::WlSurface>, token: CompositorToken<SurfaceData, Roles>) {

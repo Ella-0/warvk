@@ -43,10 +43,6 @@ impl WlCtx {
 
 		init_shm_global(&mut display, vec![], None);
 
-		// TODO init_shell
-
-		// this is temporary
-
 		let (compositor_token, _, _, window_map) = crate::shell::init_shell(&mut display);
 
         let dnd_icon = Arc::new(Mutex::new(None));
@@ -90,17 +86,20 @@ impl WlCtx {
             &mut display,
             "Winit".into(),
             PhysicalProperties {
-                width: 0,
-                height: 0,
+                width: 1920,
+                height: 1080,
                 subpixel: wl_output::Subpixel::Unknown,
                 make: "Smithay".into(),
-                model: "Winit".into(),
+                model: "WaRVk".into(),
             },
 			None
         );
 
 		let pointer_location = Rc::new(RefCell::new((0.0, 0.0)));
 
+        std::process::Command::new("alacritty").arg("-e").arg("ytop")
+            .spawn()
+            .expect("Failed to spawn");
         std::process::Command::new("weston-info")
             .spawn()
             .expect("Failed to spawn");

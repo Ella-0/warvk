@@ -15,7 +15,11 @@ use vulkano::{
     },
     sync,
     sync::{FlushError, GpuFuture},
+	image::immutable::{ImmutableImage}
 };
+
+use smithay::wayland::shm;
+use smithay::reexports::wayland_server::{Resource, protocol::wl_buffer};
 
 extern crate vk_sys as vk;
 
@@ -66,8 +70,7 @@ pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
             physical_device.ty()
         );
 
-        if physical_device_ret.is_none()
-        /* || physical_device.ty() == PhysicalDeviceType::DiscreteGpu */
+        if physical_device_ret.is_none() || physical_device.ty() == PhysicalDeviceType::DiscreteGpu 
         {
             physical_device_ret = Some(physical_device);
         }
@@ -241,11 +244,13 @@ mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         src: "
-			#version 450
-			layout(location = 0) in vec2 position;
-			void main() {
-				gl_Position = vec4(position, 0.0, 1.0);
-			}
+#version 450
+layout(location = 0) in vec2 position;
+layout(location = 0) out vec2 tex_coords;
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    tex_coords = position/2 + vec2(0.5);
+}
 		"
     }
 }
@@ -254,14 +259,47 @@ mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
         src: "
-			#version 450
-			layout(location = 0) out vec4 f_color;
-			void main() {
-				f_color = vec4(1.0, 0.0, 0.0, 1.0);
-			}
+#version 450
+layout(location = 0) in vec2 tex_coords;
+layout(location = 0) out vec4 f_color;
+layout(set = 0, binding = 0) uniform sampler2D tex;
+void main() {
+    f_color = texture(tex, tex_coords).bgra;
+}
 		"
     }
 }
+
+/*mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        src: "
+#version 450
+layout(location = 0) in vec2 position;
+layout(location = 0) out vec2 tex_coords;
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    tex_coords = position + vec2(0.5);
+}
+		"
+    }
+}
+
+mod fs {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        src: "
+#version 450
+layout(location = 0) in vec2 tex_coords;
+layout(location = 0) out vec4 f_color;
+void main() {
+    f_color = tex_coords.xyxy;
+}
+		"
+    }
+}*/
+
+
 
 pub fn create_pipeline<V: Vertex>(
     device: Arc<Device>,
@@ -281,7 +319,7 @@ pub fn create_pipeline<V: Vertex>(
             // the entry point.
             .vertex_shader(vs.main_entry_point(), ())
             // The content of the vertex buffer describes a list of triangles.
-            .triangle_list()
+            .triangle_strip()
             // Use a resizable viewport set to draw over the entire window
             .viewports_dynamic_scissors_irrelevant(1)
             // See `vertex_shader`.
@@ -339,6 +377,7 @@ where
     dynamic_state: DynamicState,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     vertex_buffer: Arc<dyn BufferAccess + Send + Sync>,
+	sampler: Arc<vulkano::sampler::Sampler>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
     framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
     recreate_swapchain: bool,
@@ -395,6 +434,15 @@ impl VkCtx<winit::window::Window> {
     }
 }
 
+pub struct TextureMetadata {
+    pub texture: Arc<CpuAccessibleBuffer<[u8]>>,
+    pub fragment: usize,
+    pub y_inverted: bool,
+    pub dimensions: (u32, u32),
+    #[cfg(feature = "egl")]
+    images: Option<EGLImages>,
+}
+
 impl<W> VkCtx<W>
 where
     W: Send + Sync,
@@ -431,14 +479,17 @@ where
                 BufferUsage::all(),
                 false,
                 [
-                    Vertex {
-                        position: [-0.5, 0.5],
+        			Vertex {
+                        position: [-1f32, -1f32],
                     },
                     Vertex {
-                        position: [0.0, -0.5],
+                        position: [-1f32, 1f32],
                     },
                     Vertex {
-                        position: [0.5, 0.5],
+                        position: [1f32, -1f32],
+                    },
+                    Vertex {
+                        position: [1f32, 1f32],
                     },
                 ]
                 .iter()
@@ -464,6 +515,21 @@ where
 
         let recreate_swapchain = false;
 
+		let sampler = vulkano::sampler::Sampler::new(
+            device.clone(),
+            vulkano::sampler::Filter::Linear,
+            vulkano::sampler::Filter::Linear,
+            vulkano::sampler::MipmapMode::Nearest,
+            vulkano::sampler::SamplerAddressMode::Repeat,
+            vulkano::sampler::SamplerAddressMode::Repeat,
+            vulkano::sampler::SamplerAddressMode::Repeat,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+        )
+        .unwrap();
+
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
 
         VkCtx::<W> {
@@ -475,6 +541,7 @@ where
             swapchain_images: images,
             vertex_buffer,
             render_pass,
+			sampler,
             pipeline,
             dynamic_state,
             framebuffers,
@@ -540,7 +607,7 @@ where
         }
 
         // Specify the color to clear the framebuffer with i.e. blue
-        let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
+        let clear_values = vec![[0.0, 0.0, 0.0, 0.0].into()];
 
         // In order to draw, we have to build a *command buffer*. The command buffer object holds
         // the list of commands that are going to be executed.
@@ -619,16 +686,37 @@ where
         }
     }
 
-    pub fn render_shm_buffer(&mut self, _dimensions: [u32; 2], data: &[u8]) {
-        let buffer = CpuAccessibleBuffer::from_iter(
-            self.device.clone(),
-            BufferUsage::all(),
-            false,
-            data.iter().map(|x| *x),
-        )
-        .unwrap();
+	pub fn load_shm_buffer(&mut self, buffer: &Resource<wl_buffer::WlBuffer>) -> Arc<CpuAccessibleBuffer<[u8]>> {
+		shm::with_buffer_contents(buffer, |slice, data| {
+			CpuAccessibleBuffer::from_iter(
+           		self.device.clone(),
+                BufferUsage::all(),
+                false,
+                slice.iter().map(|x| *x),
+            )
+            .unwrap()
+		}).unwrap()
+	}
 
-        let (image_num, _suboptimal, acquire_future) =
+	pub fn load_shm_buffer_to_image(&mut self, buffer: &Resource<wl_buffer::WlBuffer>) -> Arc<ImmutableImage<vulkano::format::Format>> {
+		let (img, img_future) = shm::with_buffer_contents(buffer, |slice, data| {
+			ImmutableImage::from_iter(
+                slice.iter().map(|x| *x),
+				vulkano::image::Dimensions::Dim2d { width: data.width as u32, height: data.height as u32},
+				vulkano::format::Format::R8G8B8A8Srgb,
+				self.queue.clone()
+            )
+            .unwrap()
+		}).unwrap();
+
+
+
+		self.previous_frame_end = Some(img_future.boxed());
+		img
+	}
+
+    pub fn render_shm_buffer(&mut self, buffer: Arc<ImmutableImage<vulkano::format::Format>>) {
+        let (image_num, _suboptimald,  acquire_future) =
             match swapchain::acquire_next_image(self.swapchain.clone(), None) {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
@@ -644,9 +732,27 @@ where
         )
         .unwrap();
 
-        let _ = builder
-            .copy_buffer_to_image(buffer, self.swapchain_images[image_num].clone())
-            .expect("Failed to render shm");
+        let clear_values = vec![[0.0, 0.0, 0.0, 0.0].into()];
+
+		let layout = self.pipeline.descriptor_set_layout(0).unwrap();
+        let set = Arc::new(
+            vulkano::descriptor::descriptor_set::PersistentDescriptorSet::start(layout.clone())
+                .add_sampled_image(buffer.clone(), self.sampler.clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+        );        
+		let _ = builder
+            .begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values).unwrap()
+            .draw(
+                self.pipeline.clone(),
+                &self.dynamic_state,
+                vec![self.vertex_buffer.clone()],
+                set.clone(),
+                (),
+            )
+            .expect("Failed to render shm")
+            .end_render_pass().expect("Failed to end render pass");
 
         let command_buffer = builder.build().unwrap();
 
