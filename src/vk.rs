@@ -5,6 +5,7 @@ use vulkano::{
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice, PhysicalDeviceType, QueueFamily},
+    memory::DeviceMemory,
     pipeline::{vertex::Vertex, viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract},
     swapchain,
     swapchain::{
@@ -15,6 +16,8 @@ use vulkano::{
     sync,
     sync::{FlushError, GpuFuture},
 };
+
+extern crate vk_sys as vk;
 
 use std::sync::Arc;
 
@@ -64,7 +67,7 @@ pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
         );
 
         if physical_device_ret.is_none()
-        /*|| physical_device.ty() == PhysicalDeviceType::DiscreteGpu*/
+        /* || physical_device.ty() == PhysicalDeviceType::DiscreteGpu */
         {
             physical_device_ret = Some(physical_device);
         }
@@ -118,9 +121,9 @@ pub fn choose_display_plane(physical_device: PhysicalDevice) -> DisplayPlane {
     display_planes.next().expect("No planes")
 }
 
-pub fn choose_queue_family(
+pub fn choose_queue_family<W>(
     physical_device: PhysicalDevice,
-    surface: Arc<Surface<()>>,
+    surface: Arc<Surface<W>>,
 ) -> QueueFamily {
     physical_device
         .queue_families()
@@ -149,13 +152,13 @@ pub fn create_device(
     .unwrap()
 }
 
-pub fn create_swapchain(
+pub fn create_swapchain<W>(
     physical_device: PhysicalDevice,
-    surface: Arc<Surface<()>>,
+    surface: Arc<Surface<W>>,
     device: Arc<Device>,
     queue: Arc<Queue>,
     dimensions: [u32; 2],
-) -> (Arc<Swapchain<()>>, Vec<Arc<SwapchainImage<()>>>) {
+) -> (Arc<Swapchain<W>>, Vec<Arc<SwapchainImage<W>>>) {
     // Querying the capabilities of the surface. When we create the swapchain we can only
     // pass values that are allowed by the capabilities.
     let caps = surface.capabilities(physical_device).unwrap();
@@ -198,10 +201,10 @@ pub fn create_swapchain(
     .unwrap()
 }
 
-pub fn create_render_pass(
+pub fn create_render_pass<W>(
     device: Arc<Device>,
-    swapchain: Arc<Swapchain<()>>,
-) -> Arc<RenderPassAbstract + Send + Sync> {
+    swapchain: Arc<Swapchain<W>>,
+) -> Arc<dyn RenderPassAbstract + Send + Sync> {
     Arc::new(
         vulkano::single_pass_renderpass!(
             device.clone(),
@@ -292,11 +295,14 @@ pub fn create_pipeline<V: Vertex>(
     )
 }
 
-pub fn create_framebuffers(
-    images: &[Arc<SwapchainImage<()>>],
+pub fn create_framebuffers<W>(
+    images: &Vec<Arc<SwapchainImage<W>>>,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     dynamic_state: &mut DynamicState,
-) -> Vec<Arc<dyn FramebufferAbstract + Send + Sync>> {
+) -> Vec<Arc<dyn FramebufferAbstract + Send + Sync>>
+where
+    W: Send + Sync + 'static,
+{
     let dimensions = images[0].dimensions();
 
     let viewport = Viewport {
@@ -320,24 +326,33 @@ pub fn create_framebuffers(
         .collect::<Vec<_>>()
 }
 
-pub struct VkCtx {
-    surface: Arc<Surface<()>>,
+pub struct VkCtx<W>
+where
+    W: Send + Sync + 'static,
+{
+    surface: Arc<Surface<W>>,
     device: Arc<Device>,
     queue: Arc<Queue>,
     dimensions: [u32; 2],
-    swapchain: Arc<Swapchain<()>>,
-    swapchain_images: Vec<Arc<SwapchainImage<()>>>,
+    swapchain: Arc<Swapchain<W>>,
+    swapchain_images: Vec<Arc<SwapchainImage<W>>>,
     dynamic_state: DynamicState,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     vertex_buffer: Arc<dyn BufferAccess + Send + Sync>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
     framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
     recreate_swapchain: bool,
-    previous_frame_end: Option<Box<GpuFuture>>,
+    previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 
-impl VkCtx {
-    pub fn init() -> VkCtx {
+#[derive(Clone)]
+enum AbstractSurface {
+    Window(Arc<Surface<winit::window::Window>>),
+    Screen(Arc<Surface<()>>),
+}
+
+impl VkCtx<()> {
+    pub fn init() -> VkCtx<()> {
         let instance = create_instance();
 
         let physical = choose_physical_device(&instance);
@@ -347,17 +362,54 @@ impl VkCtx {
         let display_mode = choose_display_mode(display);
 
         let display_plane = choose_display_plane(physical);
+        VkCtx::<()>::agnostic_init(
+            instance.clone(),
+            physical,
+            Surface::<()>::from_display_mode(&display_mode, &display_plane)
+                .expect("Failed to create surface"),
+            display_mode.visible_region(),
+        )
+    }
+}
 
-        let surface = Surface::<()>::from_display_mode(&display_mode, &display_plane)
-            .expect("Failed to create surface");
+impl VkCtx<winit::window::Window> {
+    pub fn init() -> VkCtx<winit::window::Window> {
+        let instance = create_instance();
 
+        let physical = choose_physical_device(&instance);
+
+        use vulkano_win::VkSurfaceBuild;
+        let event_loop = winit::event_loop::EventLoop::new();
+        let surface = winit::window::WindowBuilder::new()
+            .build_vk_surface(&event_loop, instance.clone())
+            .unwrap();
+        VkCtx::<winit::window::Window>::agnostic_init(
+            instance.clone(),
+            physical,
+            surface.clone(),
+            [
+                surface.clone().window().inner_size().width,
+                surface.window().inner_size().height,
+            ],
+        )
+    }
+}
+
+impl<W> VkCtx<W>
+where
+    W: Send + Sync,
+{
+    pub fn agnostic_init(
+        instance: Arc<Instance>,
+        physical: PhysicalDevice,
+        surface: Arc<Surface<W>>,
+        dimensions: [u32; 2],
+    ) -> VkCtx<W> {
         let queue_family = choose_queue_family(physical, surface.clone());
 
         let (device, mut queues) = create_device(physical, queue_family);
 
         let queue = queues.next().unwrap();
-
-        let dimensions: [u32; 2] = display_mode.visible_region();
 
         let (mut swapchain, images) = create_swapchain(
             physical,
@@ -408,14 +460,13 @@ impl VkCtx {
             reference: None,
         };
 
-        let mut framebuffers =
-            create_framebuffers(&images, render_pass.clone(), &mut dynamic_state);
+        let framebuffers = create_framebuffers(&images, render_pass.clone(), &mut dynamic_state);
 
-        let mut recreate_swapchain = false;
+        let recreate_swapchain = false;
 
-        let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+        let previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-        Self {
+        VkCtx::<W> {
             surface,
             device,
             queue,
@@ -550,6 +601,62 @@ impl VkCtx {
             // This function does not actually present the image immediately. Instead it submits a
             // present command at the end of the queue. This means that it will only be presented once
             // the GPU has finished executing the command buffer that draws the triangle.
+            .then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_num)
+            .then_signal_fence_and_flush();
+
+        match future {
+            Ok(future) => {
+                self.previous_frame_end = Some(future.boxed());
+            }
+            Err(FlushError::OutOfDate) => {
+                self.recreate_swapchain = true;
+                self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
+            }
+            Err(e) => {
+                println!("Failed to flush future: {:?}", e);
+                self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
+            }
+        }
+    }
+
+    pub fn render_shm_buffer(&mut self, _dimensions: [u32; 2], data: &[u8]) {
+        let buffer = CpuAccessibleBuffer::from_iter(
+            self.device.clone(),
+            BufferUsage::all(),
+            false,
+            data.iter().map(|x| *x),
+        )
+        .unwrap();
+
+        let (image_num, _suboptimal, acquire_future) =
+            match swapchain::acquire_next_image(self.swapchain.clone(), None) {
+                Ok(r) => r,
+                Err(AcquireError::OutOfDate) => {
+                    self.recreate_swapchain = true;
+                    return;
+                }
+                Err(e) => panic!("Failed to acquire next image: {:?}", e),
+            };
+
+        let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
+            self.device.clone(),
+            self.queue.family(),
+        )
+        .unwrap();
+
+        let _ = builder
+            .copy_buffer_to_image(buffer, self.swapchain_images[image_num].clone())
+            .expect("Failed to render shm");
+
+        let command_buffer = builder.build().unwrap();
+
+        let future = self
+            .previous_frame_end
+            .take()
+            .unwrap()
+            .join(acquire_future)
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
             .then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_num)
             .then_signal_fence_and_flush();
 

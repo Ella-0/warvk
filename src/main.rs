@@ -5,26 +5,43 @@ mod vk;
 
 mod ctx;
 
-use std::time::Duration;
+mod pool;
+mod shell;
+mod window_map;
 
-use calloop::EventLoop;
+use std::time::Duration;
 
 use std::{cell::RefCell, rc::Rc};
 
 use vk::VkCtx;
 use wl::WlCtx;
 
+use std::env;
+
+use smithay::reexports::wayland_server::{calloop::EventLoop, Display};
+
+use slog::Drain;
+
 fn main() {
     println!("╔══ WaRVk\n║ A Vulkan based Wayland compositor\n║ Written in Rust");
 
-    let kbd_rx = kbd::init();
+    let args: Vec<String> = env::args().collect();
 
     let mut event_loop = EventLoop::new().expect("Failed to create EventLoop");
 
+	let display = Rc::new(RefCell::new(Display::new(event_loop.handle())));
+
+    let kbd_rx = kbd::init(event_loop.handle());
+
     let mut should_close = false;
 
-    let mut vk_ctx = Rc::new(RefCell::new(VkCtx::init()));
-    let mut wl_ctx = Rc::new(RefCell::new(WlCtx::init(event_loop.handle())));
+    let vk_ctx = Rc::new(RefCell::new(VkCtx::<winit::window::Window>::init()));
+    let wl_ctx = Rc::new(RefCell::new(WlCtx::init(event_loop.handle())));
+
+    let mut ctx = ctx::Ctx {
+        vk_ctx: vk_ctx.clone(),
+        wl_ctx: wl_ctx.clone(),
+    };
 
     while !should_close {
         if let Ok(event) = kbd_rx.try_recv() {
@@ -36,17 +53,9 @@ fn main() {
             }
         }
 
-        let _ = event_loop.dispatch(
-            Duration::from_millis(20),
-            &mut ctx::Ctx {
-                vk_ctx: vk_ctx.clone(),
-                wl_ctx: wl_ctx.clone(),
-            },
-        );
-        wl_ctx.borrow_mut().run(&mut ctx::Ctx {
-            vk_ctx: vk_ctx.clone(),
-            wl_ctx: wl_ctx.clone(),
-        });
-        vk_ctx.borrow_mut().run();
+        let _ = event_loop.dispatch(Some(Duration::from_millis(20)), &mut ctx);
+        ctx.run();
+		//wl_ctx.borrow_mut().run(&mut ctx);
+        //vk_ctx.borrow_mut().run();
     }
 }

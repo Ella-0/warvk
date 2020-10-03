@@ -3,6 +3,11 @@ use std::io;
 use std::io::Read;
 use std::mem;
 
+use std::os::unix::io::AsRawFd;
+
+use crate::ctx::Ctx;
+use smithay::reexports::wayland_server::calloop::LoopHandle;
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct InputEvent {
@@ -274,7 +279,10 @@ pub fn is_key_press(value: i32) -> bool {
     value == KEY_PRESS
 }
 
-pub fn init() -> std::sync::mpsc::Receiver<InputEvent> {
+pub fn init<W>(loop_handle: LoopHandle<Ctx<W>>) -> std::sync::mpsc::Receiver<InputEvent>
+where
+    W: Send + Sync + 'static,
+{
     println!("╠══ kbd init");
 
     let (tx, rx) = std::sync::mpsc::channel::<InputEvent>();
@@ -283,13 +291,27 @@ pub fn init() -> std::sync::mpsc::Receiver<InputEvent> {
 
     let mut file = File::open(devnode).expect("Couldn't Open Keyboard");
     let mut buf: [u8; mem::size_of::<InputEvent>()] = unsafe { mem::zeroed() };
-    let mut buf_reader = io::BufReader::new(file);
+    //    let mut buf_reader = io::BufReader::new(file);
 
-    std::thread::spawn(move || loop {
+    /*    std::thread::spawn(move || loop {
         let count = buf_reader.read_exact(&mut buf).expect("Read Failed");
         let event: InputEvent = unsafe { mem::transmute(buf) };
         tx.send(event);
-    });
+    });*/
+
+/*    loop_handle.insert_source(
+        calloop::generic::Generic::from_fd(
+            file.as_raw_fd(),
+            calloop::Interest::Readable,
+            calloop::Mode::Level,
+        ),
+        {
+            move |_, _, ctx: &mut Ctx<W>| {
+                println!("called");
+                Ok(())
+            }
+        },
+    );*/
 
     return rx;
 }
