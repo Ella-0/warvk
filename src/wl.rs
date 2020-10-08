@@ -112,15 +112,18 @@ impl WlCtx {
 
         let pointer_location = Rc::new(RefCell::new((0.0, 0.0)));
 
+        std::process::Command::new("mpv")
+            .arg("--vo=wlshm")
+            .arg("https://youtu.be/-W6JfiC-QBk")
+            .spawn()
+            .expect("Failed to spawn");
 
-        std::process::Command::new("mpv").arg("--vo=wlshm").arg("https://youtu.be/-W6JfiC-QBk").spawn().expect("Failed to spawn");
-    
         std::process::Command::new("alacritty")
             .arg("-e")
             .arg("btm")
             .spawn()
             .expect("Failed to spawn");
-		//std::process::Command::new("weston-smoke")
+        //std::process::Command::new("weston-smoke")
         //    .spawn()
         //    .expect("Failed to spawn");
 

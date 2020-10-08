@@ -27,7 +27,6 @@ fn warvk<W>(vk_ctx: VkCtx<W>)
 where
     W: Send + Sync + 'static,
 {
-
     let mut event_loop = EventLoop::new().expect("Failed to create EventLoop");
 
     let display = Rc::new(RefCell::new(Display::new(event_loop.handle())));
@@ -62,7 +61,6 @@ where
 }
 
 fn main() {
-
     println!("╔══ WaRVk\n║ A Vulkan based Wayland compositor\n║ Written in Rust");
 
     let args: Vec<String> = env::args().collect();

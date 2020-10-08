@@ -57,12 +57,7 @@ pub fn create_instance() -> Arc<Instance> {
 
     let required_extensions = required_extensions();
 
-    Instance::new(
-        None,
-        &required_extensions,
-        None,
-    )
-    .expect("Failed to create Instance")
+    Instance::new(None, &required_extensions, None).expect("Failed to create Instance")
 }
 
 fn create_debug_callback(
@@ -98,7 +93,8 @@ pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
             physical_device.ty()
         );
 
-        if physical_device_ret.is_none() //|| physical_device.ty() == PhysicalDeviceType::DiscreteGpu
+        if physical_device_ret.is_none()
+        //|| physical_device.ty() == PhysicalDeviceType::DiscreteGpu
         {
             physical_device_ret = Some(physical_device);
         }
@@ -471,7 +467,7 @@ where
         dimensions: [u32; 2],
     ) -> VkCtx<W> {
         //let debug_callback = create_debug_callback(&instance);
-		let debug_callback = None;
+        let debug_callback = None;
         let queue_family = choose_queue_family(physical, surface.clone());
 
         let (device, mut queues) = create_device(physical, queue_family);
@@ -580,15 +576,15 @@ where
         Box<dyn GpuFuture>,
     ) {
         shm::with_buffer_contents(buffer, |pool, data| {
-			use std::borrow::Cow;
-			let pixelsize = 4;
+            use std::borrow::Cow;
+            let pixelsize = 4;
 
-			let offset = data.offset as usize;
+            let offset = data.offset as usize;
             let width = data.width as usize;
             let height = data.height as usize;
             let stride = data.stride as usize;
 
-			let slice: Cow<'_, [u8]> = if stride == width * pixelsize {
+            let slice: Cow<'_, [u8]> = if stride == width * pixelsize {
                 // the buffer is cleanly continuous, use as-is
                 Cow::Borrowed(&pool[offset..(offset + height * width * pixelsize)])
             } else {
@@ -597,11 +593,13 @@ where
                 // expose the OpenGL APIs we would need to load this buffer :/
                 let mut data = Vec::with_capacity(height * width * pixelsize);
                 for i in 0..height {
-                    data.extend(&pool[(offset + i * stride)..(offset + i * stride + width * pixelsize)]);
+                    data.extend(
+                        &pool[(offset + i * stride)..(offset + i * stride + width * pixelsize)],
+                    );
                 }
                 Cow::Owned(data)
             };
-			//let slice = pool;
+            //let slice = pool;
 
             let dim = vulkano::image::Dimensions::Dim2d {
                 width: data.width as u32,
@@ -628,8 +626,13 @@ where
             };
 
             let buffer = unsafe {
-            	let uninitialized =	CpuAccessibleBuffer::<[u8]>::uninitialized_array(
-						self.device.clone(), slice.len(), BufferUsage::all(), false).unwrap();
+                let uninitialized = CpuAccessibleBuffer::<[u8]>::uninitialized_array(
+                    self.device.clone(),
+                    slice.len(),
+                    BufferUsage::all(),
+                    false,
+                )
+                .unwrap();
 
                 // Note that we are in panic-unsafety land here. However a panic should never ever
                 // happen here, so in theory we are safe.
@@ -637,10 +640,10 @@ where
 
                 {
                     let mut mapping = uninitialized.write().unwrap();
-					mapping.copy_from_slice(&slice);
+                    mapping.copy_from_slice(&slice);
                 }
 
-				uninitialized
+                uninitialized
             };
 
             use vulkano::command_buffer::CommandBuffer;
