@@ -291,7 +291,7 @@ where
 
     let mut file = File::open(devnode).expect("Couldn't Open Keyboard");
     let mut buf: [u8; mem::size_of::<InputEvent>()] = unsafe { mem::zeroed() };
-        let mut buf_reader = io::BufReader::new(file);
+    let mut buf_reader = io::BufReader::new(file);
 
     std::thread::spawn(move || loop {
         let count = buf_reader.read_exact(&mut buf).expect("Read Failed");
@@ -299,7 +299,7 @@ where
         tx.send(event);
     });
 
-/*    loop_handle.insert_source(
+    /*    loop_handle.insert_source(
         calloop::generic::Generic::from_fd(
             file.as_raw_fd(),
             calloop::Interest::Readable,

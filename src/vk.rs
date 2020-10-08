@@ -3,6 +3,7 @@ use vulkano::{
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
     device::{Device, DeviceExtensions, Queue, QueuesIter},
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
+    image::immutable::ImmutableImage,
     image::{ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice, PhysicalDeviceType, QueueFamily},
     memory::DeviceMemory,
@@ -15,15 +16,16 @@ use vulkano::{
     },
     sync,
     sync::{FlushError, GpuFuture},
-	image::immutable::{ImmutableImage}
 };
 
+use smithay::reexports::wayland_server::{protocol::wl_buffer, Resource};
 use smithay::wayland::shm;
-use smithay::reexports::wayland_server::{Resource, protocol::wl_buffer};
 
 extern crate vk_sys as vk;
 
 use std::sync::Arc;
+
+const VALIDATION_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
 
 fn required_extensions() -> InstanceExtensions {
     let ideal = InstanceExtensions {
@@ -38,6 +40,7 @@ fn required_extensions() -> InstanceExtensions {
         mvk_macos_surface: true,
         khr_get_physical_device_properties2: true,
         khr_get_surface_capabilities2: true,
+        ext_debug_utils: true,
         ..InstanceExtensions::none()
     };
 
@@ -54,7 +57,32 @@ pub fn create_instance() -> Arc<Instance> {
 
     let required_extensions = required_extensions();
 
-    Instance::new(None, &required_extensions, None).expect("Failed to create Instance")
+    Instance::new(
+        None,
+        &required_extensions,
+        None,
+    )
+    .expect("Failed to create Instance")
+}
+
+fn create_debug_callback(
+    instance: &Arc<Instance>,
+) -> Option<vulkano::instance::debug::DebugCallback> {
+    let severity = vulkano::instance::debug::MessageSeverity {
+        error: true,
+        warning: true,
+        information: true,
+        verbose: true,
+    };
+    let msg_types = vulkano::instance::debug::MessageType {
+        general: true,
+        validation: true,
+        performance: true,
+    };
+    vulkano::instance::debug::DebugCallback::new(&instance, severity, msg_types, |msg| {
+        println!("╠══ validation layer: {:?}", msg.description);
+    })
+    .ok()
 }
 
 pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
@@ -70,7 +98,7 @@ pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
             physical_device.ty()
         );
 
-        if physical_device_ret.is_none() || physical_device.ty() == PhysicalDeviceType::DiscreteGpu 
+        if physical_device_ret.is_none() //|| physical_device.ty() == PhysicalDeviceType::DiscreteGpu
         {
             physical_device_ret = Some(physical_device);
         }
@@ -247,8 +275,11 @@ mod vs {
 #version 450
 layout(location = 0) in vec2 position;
 layout(location = 0) out vec2 tex_coords;
+layout(set = 0, binding = 0) uniform Data {
+	mat4 matrix;
+};
 void main() {
-    gl_Position = vec4(position, 0.0, 1.0);
+    gl_Position = vec4(position, 0.0, 1.0) * matrix;
     tex_coords = position/2 + vec2(0.5);
 }
 		"
@@ -262,7 +293,8 @@ mod fs {
 #version 450
 layout(location = 0) in vec2 tex_coords;
 layout(location = 0) out vec4 f_color;
-layout(set = 0, binding = 0) uniform sampler2D tex;
+layout(set = 0, binding = 1) uniform sampler2D tex;
+
 void main() {
     f_color = texture(tex, tex_coords).bgra;
 }
@@ -281,7 +313,7 @@ void main() {
     gl_Position = vec4(position, 0.0, 1.0);
     tex_coords = position + vec2(0.5);
 }
-		"
+        "
     }
 }
 
@@ -295,11 +327,9 @@ layout(location = 0) out vec4 f_color;
 void main() {
     f_color = tex_coords.xyxy;
 }
-		"
+        "
     }
 }*/
-
-
 
 pub fn create_pipeline<V: Vertex>(
     device: Arc<Device>,
@@ -368,6 +398,7 @@ pub struct VkCtx<W>
 where
     W: Send + Sync + 'static,
 {
+    debug_callback: Option<vulkano::instance::debug::DebugCallback>,
     surface: Arc<Surface<W>>,
     device: Arc<Device>,
     queue: Arc<Queue>,
@@ -377,17 +408,11 @@ where
     dynamic_state: DynamicState,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     vertex_buffer: Arc<dyn BufferAccess + Send + Sync>,
-	sampler: Arc<vulkano::sampler::Sampler>,
+    sampler: Arc<vulkano::sampler::Sampler>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
     framebuffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
-}
-
-#[derive(Clone)]
-enum AbstractSurface {
-    Window(Arc<Surface<winit::window::Window>>),
-    Screen(Arc<Surface<()>>),
 }
 
 impl VkCtx<()> {
@@ -420,6 +445,7 @@ impl VkCtx<winit::window::Window> {
         use vulkano_win::VkSurfaceBuild;
         let event_loop = winit::event_loop::EventLoop::new();
         let surface = winit::window::WindowBuilder::new()
+            .with_inner_size(winit::dpi::LogicalSize::new(1270.0f32, 720.0f32))
             .build_vk_surface(&event_loop, instance.clone())
             .unwrap();
         VkCtx::<winit::window::Window>::agnostic_init(
@@ -434,15 +460,6 @@ impl VkCtx<winit::window::Window> {
     }
 }
 
-pub struct TextureMetadata {
-    pub texture: Arc<CpuAccessibleBuffer<[u8]>>,
-    pub fragment: usize,
-    pub y_inverted: bool,
-    pub dimensions: (u32, u32),
-    #[cfg(feature = "egl")]
-    images: Option<EGLImages>,
-}
-
 impl<W> VkCtx<W>
 where
     W: Send + Sync,
@@ -453,6 +470,8 @@ where
         surface: Arc<Surface<W>>,
         dimensions: [u32; 2],
     ) -> VkCtx<W> {
+        //let debug_callback = create_debug_callback(&instance);
+		let debug_callback = None;
         let queue_family = choose_queue_family(physical, surface.clone());
 
         let (device, mut queues) = create_device(physical, queue_family);
@@ -479,7 +498,7 @@ where
                 BufferUsage::all(),
                 false,
                 [
-        			Vertex {
+                    Vertex {
                         position: [-1f32, -1f32],
                     },
                     Vertex {
@@ -515,10 +534,10 @@ where
 
         let recreate_swapchain = false;
 
-		let sampler = vulkano::sampler::Sampler::new(
+        let sampler = vulkano::sampler::Sampler::new(
             device.clone(),
-            vulkano::sampler::Filter::Linear,
-            vulkano::sampler::Filter::Linear,
+            vulkano::sampler::Filter::Nearest,
+            vulkano::sampler::Filter::Nearest,
             vulkano::sampler::MipmapMode::Nearest,
             vulkano::sampler::SamplerAddressMode::Repeat,
             vulkano::sampler::SamplerAddressMode::Repeat,
@@ -533,6 +552,7 @@ where
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
 
         VkCtx::<W> {
+            debug_callback,
             surface,
             device,
             queue,
@@ -541,7 +561,7 @@ where
             swapchain_images: images,
             vertex_buffer,
             render_pass,
-			sampler,
+            sampler,
             pipeline,
             dynamic_state,
             framebuffers,
@@ -550,15 +570,143 @@ where
         }
     }
 
-    pub fn run(&mut self) {
-        // It is important to call this function from time to time, otherwise resources will keep
-        // accumulating and you will eventually reach an out of memory error.
-        // Calling this function polls various fences in order to determine what the GPU has
-        // already processed, and frees the resources that are no longer needed.
+    //.
+    pub fn load_shm_buffer(
+        &mut self,
+        buffer: &Resource<wl_buffer::WlBuffer>,
+        image: Option<Arc<vulkano::image::StorageImage<vulkano::format::Format>>>,
+    ) -> (
+        Arc<vulkano::image::StorageImage<vulkano::format::Format>>,
+        Box<dyn GpuFuture>,
+    ) {
+        shm::with_buffer_contents(buffer, |pool, data| {
+			use std::borrow::Cow;
+			let pixelsize = 4;
+
+			let offset = data.offset as usize;
+            let width = data.width as usize;
+            let height = data.height as usize;
+            let stride = data.stride as usize;
+
+			let slice: Cow<'_, [u8]> = if stride == width * pixelsize {
+                // the buffer is cleanly continuous, use as-is
+                Cow::Borrowed(&pool[offset..(offset + height * width * pixelsize)])
+            } else {
+                // the buffer is discontinuous or lines overlap
+                // we need to make a copy as unfortunately Glium does not
+                // expose the OpenGL APIs we would need to load this buffer :/
+                let mut data = Vec::with_capacity(height * width * pixelsize);
+                for i in 0..height {
+                    data.extend(&pool[(offset + i * stride)..(offset + i * stride + width * pixelsize)]);
+                }
+                Cow::Owned(data)
+            };
+			//let slice = pool;
+
+            let dim = vulkano::image::Dimensions::Dim2d {
+                width: data.width as u32,
+                height: data.height as u32,
+            };
+            let image = if image.is_none() || image.as_ref().unwrap().dimensions() == dim {
+                let usage = ImageUsage {
+                    transfer_source: true, // for blits
+                    transfer_destination: true,
+                    sampled: true,
+                    ..ImageUsage::none()
+                };
+
+                vulkano::image::StorageImage::with_usage(
+                    self.device.clone(),
+                    dim,
+                    vulkano::format::Format::R8G8B8A8Srgb,
+                    usage,
+                    Some(self.queue.family()),
+                )
+                .unwrap()
+            } else {
+                image.unwrap()
+            };
+
+            let buffer = unsafe {
+            	let uninitialized =	CpuAccessibleBuffer::<[u8]>::uninitialized_array(
+						self.device.clone(), slice.len(), BufferUsage::all(), false).unwrap();
+
+                // Note that we are in panic-unsafety land here. However a panic should never ever
+                // happen here, so in theory we are safe.
+                // TODO: check whether that's true ^
+
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+					mapping.copy_from_slice(&slice);
+                }
+
+				uninitialized
+            };
+
+            use vulkano::command_buffer::CommandBuffer;
+
+            let mut builder =
+                AutoCommandBufferBuilder::new(self.device.clone(), self.queue.family()).unwrap();
+
+            builder
+                .copy_buffer_to_image(buffer.clone(), image.clone())
+                .unwrap();
+            let command_buffer = builder.build().unwrap();
+            let finished = command_buffer.execute(self.queue.clone()).unwrap();
+
+            (image, finished.boxed())
+        })
+        .expect("Failed")
+    }
+
+    pub fn load_shm_buffer_to_image(
+        &mut self,
+        buffer: &Resource<wl_buffer::WlBuffer>,
+    ) -> (
+        Arc<ImmutableImage<vulkano::format::Format>>,
+        Box<dyn GpuFuture>,
+    ) {
+        let (img, img_future) = shm::with_buffer_contents(buffer, |slice, data| {
+            ImmutableImage::from_iter(
+                slice.iter().map(|x| *x),
+                vulkano::image::Dimensions::Dim2d {
+                    width: data.width as u32,
+                    height: data.height as u32,
+                },
+                vulkano::format::Format::R8G8B8A8Unorm,
+                self.queue.clone(),
+            )
+            .unwrap()
+        })
+        .unwrap();
+
+        (img, (img_future).boxed())
+    }
+
+    pub fn render_windows(
+        &mut self,
+        compositor_token: smithay::wayland::compositor::CompositorToken<
+            crate::shell::SurfaceData,
+            crate::shell::Roles,
+        >,
+        window_map: std::rc::Rc<
+            std::cell::RefCell<
+                crate::window_map::WindowMap<
+                    crate::shell::SurfaceData,
+                    crate::shell::Roles,
+                    (),
+                    (),
+                    for<'r> fn(
+                        &'r smithay::wayland::compositor::SurfaceAttributes<
+                            crate::shell::SurfaceData,
+                        >,
+                    ) -> Option<(i32, i32)>,
+                >,
+            >,
+        >,
+    ) {
         self.previous_frame_end.as_mut().unwrap().cleanup_finished();
 
-        // Whenever the window resizes we need to recreate everything dependent on the window size.
-        // In this example that includes the swapchain, the framebuffers and the dynamic state viewport.
         if self.recreate_swapchain {
             // Get the new dimensions of the window.
             let dimensions: [u32; 2] = self.dimensions;
@@ -582,13 +730,6 @@ where
             self.recreate_swapchain = false;
         }
 
-        // Before we can draw on the output, we have to *acquire* an image from the swapchain. If
-        // no image is available (which happens if you submit draw commands too quickly), then the
-        // function will block.
-        // This operation returns the index of the image that we are allowed to draw upon.
-        //
-        // This function can block if no image is available. The parameter is an optional timeout
-        // after which the function call will return an error.
         let (image_num, suboptimal, acquire_future) =
             match swapchain::acquire_next_image(self.swapchain.clone(), None) {
                 Ok(r) => r,
@@ -599,75 +740,122 @@ where
                 Err(e) => panic!("Failed to acquire next image: {:?}", e),
             };
 
-        // acquire_next_image can be successful, but suboptimal. This means that the swapchain image
-        // will still work, but it may not display correctly. With some drivers this can be when
-        // the window resizes, but it may not cause the swapchain to become out of date.
-        if suboptimal {
-            self.recreate_swapchain = true;
-        }
-
-        // Specify the color to clear the framebuffer with i.e. blue
-        let clear_values = vec![[0.0, 0.0, 0.0, 0.0].into()];
-
-        // In order to draw, we have to build a *command buffer*. The command buffer object holds
-        // the list of commands that are going to be executed.
-        //
-        // Building a command buffer is an expensive operation (usually a few hundred
-        // microseconds), but it is known to be a hot path in the driver and is expected to be
-        // optimized.
-        //
-        // Note that we have to pass a queue family when we create the command buffer. The command
-        // buffer will only be executable on that given queue family.
         let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
             self.device.clone(),
             self.queue.family(),
         )
         .unwrap();
 
-        builder
-            // Before we can draw, we have to *enter a render pass*. There are two methods to do
-            // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is
-            // not covered here.
-            //
-            // The third parameter builds the list of values to clear the attachments with. The API
-            // is similar to the list of attachments when building the framebuffers, except that
-            // only the attachments that use `load: Clear` appear in the list.
+        if suboptimal {
+            self.recreate_swapchain = true;
+        }
+
+        let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
+
+        let pipeline2 = self.pipeline.clone();
+        let layout = pipeline2.descriptor_set_layout(0).unwrap();
+
+        let mut future = self.previous_frame_end.take().unwrap().join(acquire_future);
+
+        let mut future: Box<dyn GpuFuture> = Box::new(future);
+
+        let mut futures: Vec<Box<dyn GpuFuture>> = Vec::new();
+
+        let _ = builder
             .begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values)
-            .unwrap()
-            // We are now inside the first subpass of the render pass. We add a draw command.
-            //
-            // The last two parameters contain the list of resources to pass to the shaders.
-            // Since we used an `EmptyPipeline` object, the objects have to be `()`.
-            .draw(
-                self.pipeline.clone(),
-                &self.dynamic_state,
-                vec![self.vertex_buffer.clone()],
-                (),
-                (),
-            )
-            .unwrap()
-            // We leave the render pass by calling `draw_end`. Note that if we had multiple
-            // subpasses we could have called `next_inline` (or `next_secondary`) to jump to the
-            // next subpass.
-            .end_render_pass()
             .unwrap();
 
-        // Finish building the command buffer by calling `build`.
+        window_map.borrow().with_windows_from_bottom_to_top(
+            |toplevel_surface, initial_place| {
+                if let Some(wl_surface) = toplevel_surface.get_surface() {
+                    let _ = compositor_token.with_surface_tree_upward(
+                        wl_surface,
+                        initial_place,
+                        |_surface, attributes, role, &(mut x, mut y)| {
+                            // there is actually something to draw !
+                            if !attributes.user_data.texture {
+                                if let Some(buffer) = attributes.user_data.buffer.take() {
+                                	let (texture, future) = self.load_shm_buffer(&buffer.clone(), attributes.user_data.image.clone());
+									//self.load_shm_buffer_to_image(&buffer.clone());
+									attributes.user_data.texture = true;
+									attributes.user_data.image = Some(texture);
+
+                        			future.then_signal_fence_and_flush().unwrap()
+                            			.wait(None).unwrap();
+
+
+									//futures.push(future);
+                                    // notify the client that we have finished reading the
+                                    // buffer
+                                    buffer.send(wl_buffer::Event::Release);
+                                }
+                            }
+                            if let Some(ref metadata) = attributes.user_data.image {
+                                if let Ok(subdata) = smithay::wayland::compositor::roles::Role::<smithay::wayland::compositor::SubsurfaceRole>::data(role) {
+                                    x += subdata.location.0;
+                                    y += subdata.location.1;
+                                }
+								let uniform_buffer = vulkano::buffer::CpuBufferPool::<vs::ty::Data>::new(self.device.clone(), BufferUsage::all());
+
+								let xscale = (metadata.dimensions().width() as f32) / (self.dimensions[0] as f32);
+                                let mut yscale = (metadata.dimensions().height() as f32) / (self.dimensions[1] as f32);
+
+                                let xpos = 2.0 * (self.dimensions[0] as f32 / 2.0) / (self.dimensions[0] as f32) - 1.0;
+                                let mut ypos = 1.0 - 2.0 * (self.dimensions[1] as f32 / 2.0) / (self.dimensions[1] as f32);
+                                
+
+								let uniform_data = vs::ty::Data {
+									matrix: [
+                                        [xscale,   0.0  , 0.0, 0.0],
+                                        [  0.0 , yscale , 0.0, 0.0],
+                                        [  0.0 ,   0.0  , 1.0, 0.0],
+                                        [xpos  , ypos   , 0.0, 1.0]
+									]
+								};
+								let sub_buffer = uniform_buffer.next(uniform_data).unwrap();
+
+                                let set = Arc::new(
+                                    vulkano::descriptor::descriptor_set::PersistentDescriptorSet::start(layout.clone())
+                                        .add_buffer(sub_buffer).unwrap()
+										.add_sampled_image(metadata.clone(), self.sampler.clone())
+                                        .unwrap()
+                                        .build()
+                                        .unwrap(),
+                                );
+
+                                let _ = builder.draw(
+                                    self.pipeline.clone(),
+                                    &self.dynamic_state,
+                                    vec![self.vertex_buffer.clone()],
+                                    set.clone(),
+                                    (),
+                                ).expect("Failed to render shm");
+										
+                                //vk_ctx.run();
+                                smithay::wayland::compositor::TraversalAction::DoChildren((x, y))
+                            } else {
+                                // we are not display, so our children are neither
+                                smithay::wayland::compositor::TraversalAction::SkipChildren
+                            }
+                        },
+                    );
+                }
+            },
+        );
+
+        let future_iter = futures.into_iter();
+
+        let future = future_iter.fold(future, |acc, x| acc.join(x).boxed());
+
+        builder
+            .end_render_pass()
+            .expect("Failed to end render pass");
+
         let command_buffer = builder.build().unwrap();
 
-        let future = self
-            .previous_frame_end
-            .take()
-            .unwrap()
-            .join(acquire_future)
+        let future = future
             .then_execute(self.queue.clone(), command_buffer)
             .unwrap()
-            // The color output is now expected to contain our triangle. But in order to show it on
-            // the screen, we have to *present* the image by calling `present`.
-            //
-            // This function does not actually present the image immediately. Instead it submits a
-            // present command at the end of the queue. This means that it will only be presented once
-            // the GPU has finished executing the command buffer that draws the triangle.
             .then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_num)
             .then_signal_fence_and_flush();
 
@@ -686,37 +874,8 @@ where
         }
     }
 
-	pub fn load_shm_buffer(&mut self, buffer: &Resource<wl_buffer::WlBuffer>) -> Arc<CpuAccessibleBuffer<[u8]>> {
-		shm::with_buffer_contents(buffer, |slice, data| {
-			CpuAccessibleBuffer::from_iter(
-           		self.device.clone(),
-                BufferUsage::all(),
-                false,
-                slice.iter().map(|x| *x),
-            )
-            .unwrap()
-		}).unwrap()
-	}
-
-	pub fn load_shm_buffer_to_image(&mut self, buffer: &Resource<wl_buffer::WlBuffer>) -> Arc<ImmutableImage<vulkano::format::Format>> {
-		let (img, img_future) = shm::with_buffer_contents(buffer, |slice, data| {
-			ImmutableImage::from_iter(
-                slice.iter().map(|x| *x),
-				vulkano::image::Dimensions::Dim2d { width: data.width as u32, height: data.height as u32},
-				vulkano::format::Format::R8G8B8A8Srgb,
-				self.queue.clone()
-            )
-            .unwrap()
-		}).unwrap();
-
-
-
-		self.previous_frame_end = Some(img_future.boxed());
-		img
-	}
-
     pub fn render_shm_buffer(&mut self, buffer: Arc<ImmutableImage<vulkano::format::Format>>) {
-        let (image_num, _suboptimald,  acquire_future) =
+        let (image_num, _suboptimald, acquire_future) =
             match swapchain::acquire_next_image(self.swapchain.clone(), None) {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
@@ -734,16 +893,17 @@ where
 
         let clear_values = vec![[0.0, 0.0, 0.0, 0.0].into()];
 
-		let layout = self.pipeline.descriptor_set_layout(0).unwrap();
+        let layout = self.pipeline.descriptor_set_layout(0).unwrap();
         let set = Arc::new(
             vulkano::descriptor::descriptor_set::PersistentDescriptorSet::start(layout.clone())
                 .add_sampled_image(buffer.clone(), self.sampler.clone())
                 .unwrap()
                 .build()
                 .unwrap(),
-        );        
-		let _ = builder
-            .begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values).unwrap()
+        );
+        let _ = builder
+            .begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values)
+            .unwrap()
             .draw(
                 self.pipeline.clone(),
                 &self.dynamic_state,
@@ -752,7 +912,8 @@ where
                 (),
             )
             .expect("Failed to render shm")
-            .end_render_pass().expect("Failed to end render pass");
+            .end_render_pass()
+            .expect("Failed to end render pass");
 
         let command_buffer = builder.build().unwrap();
 
@@ -767,7 +928,9 @@ where
             .then_signal_fence_and_flush();
 
         match future {
-            Ok(future) => {
+            Ok(mut future) => {
+                future.cleanup_finished();
+                future.wait(None).unwrap();
                 self.previous_frame_end = Some(future.boxed());
             }
             Err(FlushError::OutOfDate) => {

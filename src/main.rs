@@ -5,10 +5,10 @@ mod vk;
 
 mod ctx;
 
+mod input_handler;
 mod pool;
 mod shell;
 mod window_map;
-mod input_handler;
 
 use std::time::Duration;
 
@@ -23,20 +23,20 @@ use smithay::reexports::wayland_server::{calloop::EventLoop, Display};
 
 use slog::Drain;
 
-fn main() {
-    println!("╔══ WaRVk\n║ A Vulkan based Wayland compositor\n║ Written in Rust");
-
-    let args: Vec<String> = env::args().collect();
+fn warvk<W>(vk_ctx: VkCtx<W>)
+where
+    W: Send + Sync + 'static,
+{
 
     let mut event_loop = EventLoop::new().expect("Failed to create EventLoop");
 
-	let display = Rc::new(RefCell::new(Display::new(event_loop.handle())));
+    let display = Rc::new(RefCell::new(Display::new(event_loop.handle())));
 
     let kbd_rx = kbd::init(event_loop.handle());
 
     let mut should_close = false;
 
-    let vk_ctx = Rc::new(RefCell::new(VkCtx::<()>::init()));
+    let vk_ctx = Rc::new(RefCell::new(vk_ctx));
     let wl_ctx = Rc::new(RefCell::new(WlCtx::init(event_loop.handle())));
 
     let mut ctx = ctx::Ctx {
@@ -54,9 +54,26 @@ fn main() {
             }
         }
 
-        let _ = event_loop.dispatch(Some(Duration::from_millis(20)), &mut ctx);
+        let _ = event_loop.dispatch(Some(Duration::from_millis(16)), &mut ctx);
         ctx.run();
-		//wl_ctx.borrow_mut().run(&mut ctx);
+        //wl_ctx.borrow_mut().run(&mut ctx);
         //vk_ctx.borrow_mut().run();
+    }
+}
+
+fn main() {
+
+    println!("╔══ WaRVk\n║ A Vulkan based Wayland compositor\n║ Written in Rust");
+
+    let args: Vec<String> = env::args().collect();
+
+    if let Some(arg) = args.get(1) {
+        if arg == "--winit" {
+            warvk(VkCtx::<winit::window::Window>::init());
+        } else {
+            panic!("Unsupported");
+        }
+    } else {
+        warvk(VkCtx::<()>::init());
     }
 }

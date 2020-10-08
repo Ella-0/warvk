@@ -114,14 +114,10 @@ impl<B: InputBackend> InputHandler<B> for WaRVkInputHandler {
             }
             KeyAction::VtSwitch(vt) => {
                 if let Some(ref mut session) = self.session {
-                    if let Err(err) = session.change_vt(vt) {
-                    }
+                    if let Err(err) = session.change_vt(vt) {}
                 }
             }
-            KeyAction::Run(cmd) => {
-                if let Err(e) = Command::new(&cmd).spawn() {
-                }
-            }
+            KeyAction::Run(cmd) => if let Err(e) = Command::new(&cmd).spawn() {},
             _ => (),
         }
     }
@@ -164,7 +160,10 @@ impl<B: InputBackend> InputHandler<B> for WaRVkInputHandler {
         };
         *self.pointer_location.borrow_mut() = (x, y);
         let serial = SCOUNTER.next_serial();
-        let under = self.window_map.borrow().get_surface_under((x as f64, y as f64));
+        let under = self
+            .window_map
+            .borrow()
+            .get_surface_under((x as f64, y as f64));
         self.pointer.motion((x, y), under, serial, evt.time());
     }
 
@@ -198,7 +197,9 @@ impl<B: InputBackend> InputHandler<B> for WaRVkInputHandler {
         let source = match evt.source() {
             input::AxisSource::Continuous => wl_pointer::AxisSource::Continuous,
             input::AxisSource::Finger => wl_pointer::AxisSource::Finger,
-            input::AxisSource::Wheel | input::AxisSource::WheelTilt => wl_pointer::AxisSource::Wheel,
+            input::AxisSource::Wheel | input::AxisSource::WheelTilt => {
+                wl_pointer::AxisSource::Wheel
+            }
         };
         let horizontal_amount = evt
             .amount(&input::Axis::Horizontal)
@@ -226,7 +227,7 @@ impl<B: InputBackend> InputHandler<B> for WaRVkInputHandler {
                 }
             } else if source == wl_pointer::AxisSource::Finger {
                 frame = frame.stop(wl_pointer::Axis::VerticalScroll);
-           }
+            }
             self.pointer.axis(frame);
         }
     }

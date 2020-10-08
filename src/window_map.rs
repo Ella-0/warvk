@@ -2,7 +2,9 @@ use smithay::{
     reexports::wayland_server::{protocol::wl_surface, Resource},
     utils::Rectangle,
     wayland::{
-        compositor::{roles::Role, CompositorToken, SubsurfaceRole, SurfaceAttributes, TraversalAction},
+        compositor::{
+            roles::Role, CompositorToken, SubsurfaceRole, SurfaceAttributes, TraversalAction,
+        },
         shell::{
             legacy::{ShellSurface, ShellSurfaceRole},
             xdg::{ToplevelSurface, XdgSurfaceRole},
@@ -81,7 +83,8 @@ where
                             height: h,
                         };
                         if my_rect.contains((point.0 as i32, point.1 as i32)) {
-                            found = Some((wl_surface.clone(), (my_rect.x as f64, my_rect.y as f64)));
+                            found =
+                                Some((wl_surface.clone(), (my_rect.x as f64, my_rect.y as f64)));
                             TraversalAction::Break
                         } else {
                             TraversalAction::DoChildren((x, y))

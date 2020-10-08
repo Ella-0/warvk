@@ -15,11 +15,12 @@ use smithay::{
         seat::CursorImageRole,
         shell::{
             legacy::{
-                wl_shell_init, ShellRequest, ShellState as WlShellState, ShellSurfaceKind, ShellSurfaceRole,
+                wl_shell_init, ShellRequest, ShellState as WlShellState, ShellSurfaceKind,
+                ShellSurfaceRole,
             },
             xdg::{
-                xdg_shell_init, PopupConfigure, ShellState as XdgShellState, ToplevelConfigure, XdgRequest,
-                XdgSurfaceRole,
+                xdg_shell_init, PopupConfigure, ShellState as XdgShellState, ToplevelConfigure,
+                XdgRequest, XdgSurfaceRole,
             },
         },
     },
@@ -36,8 +37,13 @@ define_roles!(Roles =>
     [ CursorImage, CursorImageRole ]
 );
 
-pub type MyWindowMap =
-    WindowMap<SurfaceData, Roles, (), (), fn(&SurfaceAttributes<SurfaceData>) -> Option<(i32, i32)>>;
+pub type MyWindowMap = WindowMap<
+    SurfaceData,
+    Roles,
+    (),
+    (),
+    fn(&SurfaceAttributes<SurfaceData>) -> Option<(i32, i32)>,
+>;
 
 pub type MyCompositorToken = CompositorToken<SurfaceData, Roles>;
 
@@ -58,7 +64,7 @@ pub fn init_shell(
                 .implement(|e, _| match e {}, None::<fn(_)>, ())
                 .send(wl_callback::Event::Done { callback_data: 0 }),
         },
-		None
+        None,
     );
 
     // Init a window map, to track the location of our windows
@@ -93,7 +99,7 @@ pub fn init_shell(
             }),
             _ => (),
         },
-		None
+        None,
     );
 
     // init the wl_shell
@@ -116,20 +122,29 @@ pub fn init_shell(
                     .insert(SurfaceKind::Wl(surface), (x, y));
             }
         },
-		None
+        None,
     );
 
-    (compositor_token, xdg_shell_state, wl_shell_state, window_map)
+    (
+        compositor_token,
+        xdg_shell_state,
+        wl_shell_state,
+        window_map,
+    )
 }
 
 #[derive(Default)]
 pub struct SurfaceData {
     pub buffer: Option<Resource<wl_buffer::WlBuffer>>,
-	// make vulkan texture data
-    pub texture: Option<Arc<vulkano::image::ImmutableImage<vulkano::format::Format>>>,
+    // make vulkan texture data
+    pub texture: bool,
+    pub image: Option<Arc<vulkano::image::StorageImage<vulkano::format::Format>>>,
 }
 
-fn surface_commit(surface: &Resource<wl_surface::WlSurface>, token: CompositorToken<SurfaceData, Roles>) {
+fn surface_commit(
+    surface: &Resource<wl_surface::WlSurface>,
+    token: CompositorToken<SurfaceData, Roles>,
+) {
     // we retrieve the contents of the associated buffer and copy it
     token.with_surface_data(surface, |attributes| {
         match attributes.buffer.take() {
@@ -137,12 +152,12 @@ fn surface_commit(surface: &Resource<wl_surface::WlSurface>, token: CompositorTo
                 // new contents
                 // TODO: handle hotspot coordinates
                 attributes.user_data.buffer = Some(buffer);
-                attributes.user_data.texture = None;
+                attributes.user_data.texture = false;
             }
             Some(None) => {
                 // erase the contents
                 attributes.user_data.buffer = None;
-                attributes.user_data.texture = None;
+                attributes.user_data.texture = false;
             }
             None => {}
         }
@@ -150,11 +165,10 @@ fn surface_commit(surface: &Resource<wl_surface::WlSurface>, token: CompositorTo
 }
 
 fn get_size(attrs: &SurfaceAttributes<SurfaceData>) -> Option<(i32, i32)> {
-    /*attrs
-        .user_data
-        .texture
-        .as_ref()
-        .map(|ref meta| meta.dimensions)
-        .map(|(x, y)| (x as i32, y as i32))*/
-	Some((640, 480))
+    if attrs.user_data.texture {
+        let d = attrs.user_data.image.as_ref().unwrap().dimensions();
+        Some((d.width() as i32, d.height() as i32))
+    } else {
+        None
+    }
 }
