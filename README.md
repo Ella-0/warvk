@@ -66,7 +66,7 @@ SOFTWARE.
 
 Any of my code in this repository is licensed under the following:
 ```
-Copyright (C) 2006, 2019 by Ella-0 <23418164+Ella-0@users.noreply.github.com>
+Copyright (C) 2020 by Ella-0 <23418164+Ella-0@users.noreply.github.com>
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted.
