@@ -39,7 +39,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-Some of the code in `src/wl.rs` and other Wayland related source files is taken directly from `github.com/smithay/anvil`
+Some of the code in `src/wl.rs` and other Wayland related source files is taken directly from `github.com/smithay/smithay`
 ```
 MIT License
 
