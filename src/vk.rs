@@ -94,7 +94,7 @@ pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
         );
 
         if physical_device_ret.is_none()
-        //|| physical_device.ty() == PhysicalDeviceType::DiscreteGpu
+        || physical_device.ty() == PhysicalDeviceType::DiscreteGpu
         {
             physical_device_ret = Some(physical_device);
         }
@@ -584,22 +584,22 @@ where
             let height = data.height as usize;
             let stride = data.stride as usize;
 
-            let slice: Cow<'_, [u8]> = if stride == width * pixelsize {
+            //let slice: Cow<'_, [u8]> = if stride == width * pixelsize {
                 // the buffer is cleanly continuous, use as-is
-                Cow::Borrowed(&pool[offset..(offset + height * width * pixelsize)])
-            } else {
+            //    Cow::Borrowed(&pool[offset..(offset + height * width * pixelsize)])
+            //} else {
                 // the buffer is discontinuous or lines overlap
                 // we need to make a copy as unfortunately Glium does not
                 // expose the OpenGL APIs we would need to load this buffer :/
-                let mut data = Vec::with_capacity(height * width * pixelsize);
-                for i in 0..height {
-                    data.extend(
-                        &pool[(offset + i * stride)..(offset + i * stride + width * pixelsize)],
-                    );
-                }
-                Cow::Owned(data)
-            };
-            //let slice = pool;
+            //    let mut data = Vec::with_capacity(height * width * pixelsize);
+            //    for i in 0..height {
+            //        data.extend(
+            //            &pool[(offset + i * stride)..(offset + i * stride + width * pixelsize)],
+            //        );
+            //    }
+            //    Cow::Owned(data)
+            //};
+            let slice = pool;
 
             let dim = vulkano::image::Dimensions::Dim2d {
                 width: data.width as u32,
