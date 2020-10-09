@@ -83,11 +83,13 @@ where
 
         //event_loop.dispatch
 
-        self.wl_ctx
+		let mut m = ();
+
+        /*self.wl_ctx
             .borrow_mut()
             .display
             .borrow_mut()
-            .flush_clients();
+            .flush_clients(&mut m);*/
 
         self.wl_ctx.borrow_mut().window_map.borrow_mut().refresh();
     }

@@ -13,9 +13,12 @@ vulkano-shaders = "0.19"
 wayland-server = "0.28"
 vulkano-win = "0.19"
 calloop = "0.6.4"
-nix = "0.17"
-smithay = "0.2.1"
 winit = "0.22"
-slog = "2.5.2"
+slog = { version = "2.1.1" }
 slog-term = "2.3"
 slog-async = "2.2"
+
+[dependencies.smithay]
+git = "https://github.com/smithay/smithay"
+default-features = false
+features = [ "wayland_frontend", "backend_session", "backend_session_logind", "backend_libinput"]

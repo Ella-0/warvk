@@ -5,8 +5,6 @@ mod vk;
 
 mod ctx;
 
-mod input_handler;
-mod pool;
 mod shell;
 mod window_map;
 
@@ -19,7 +17,9 @@ use wl::WlCtx;
 
 use std::env;
 
-use smithay::reexports::wayland_server::{calloop::EventLoop, Display};
+use smithay::reexports::wayland_server::Display;
+use calloop::LoopHandle;
+use calloop::EventLoop;
 
 use slog::Drain;
 
@@ -29,7 +29,7 @@ where
 {
     let mut event_loop = EventLoop::new().expect("Failed to create EventLoop");
 
-    let display = Rc::new(RefCell::new(Display::new(event_loop.handle())));
+    let display = Rc::new(RefCell::new(Display::new()));
 
     let kbd_rx = kbd::init(event_loop.handle());
 
@@ -53,8 +53,9 @@ where
             }
         }
 
-        let _ = event_loop.dispatch(Some(Duration::from_millis(16)), &mut ctx);
         ctx.run();
+        let _ = event_loop.dispatch(Some(Duration::from_millis(16)), &mut ctx);
+		wl_ctx.clone().borrow_mut().display.borrow_mut().flush_clients(&mut ctx);
         //wl_ctx.borrow_mut().run(&mut ctx);
         //vk_ctx.borrow_mut().run();
     }

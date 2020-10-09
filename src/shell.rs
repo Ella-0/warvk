@@ -10,7 +10,8 @@ use smithay::{
         Display, Resource,
     },
     wayland::{
-        compositor::{compositor_init, CompositorToken, SurfaceAttributes, SurfaceEvent},
+		Serial,
+        compositor::{compositor_init, CompositorToken, SurfaceAttributes, SurfaceEvent, BufferAssignment},
         data_device::DnDIconRole,
         seat::CursorImageRole,
         shell::{
@@ -32,43 +33,37 @@ use crate::window_map::{Kind as SurfaceKind, WindowMap};
 
 define_roles!(Roles =>
     [ XdgSurface, XdgSurfaceRole ]
-    [ ShellSurface, ShellSurfaceRole<()>]
+    [ ShellSurface, ShellSurfaceRole]
     [ DnDIcon, DnDIconRole ]
     [ CursorImage, CursorImageRole ]
 );
 
 pub type MyWindowMap = WindowMap<
-    SurfaceData,
     Roles,
-    (),
-    (),
-    fn(&SurfaceAttributes<SurfaceData>) -> Option<(i32, i32)>,
+    fn(&SurfaceAttributes) -> Option<(i32, i32)>,
 >;
 
-pub type MyCompositorToken = CompositorToken<SurfaceData, Roles>;
+pub type MyCompositorToken = CompositorToken<Roles>;
 
 pub fn init_shell(
     display: &mut Display,
 ) -> (
-    CompositorToken<SurfaceData, Roles>,
-    Arc<Mutex<XdgShellState<SurfaceData, Roles, ()>>>,
-    Arc<Mutex<WlShellState<SurfaceData, Roles, ()>>>,
+    CompositorToken<Roles>,
+    Arc<Mutex<XdgShellState<Roles>>>,
+    Arc<Mutex<WlShellState<Roles>>>,
     Rc<RefCell<MyWindowMap>>,
 ) {
     // Create the compositor
     let (compositor_token, _, _) = compositor_init(
         display,
         move |request, surface, ctoken| match request {
-            SurfaceEvent::Commit => surface_commit(&surface, ctoken),
-            SurfaceEvent::Frame { callback } => callback
-                .implement(|e, _| match e {}, None::<fn(_)>, ())
-                .send(wl_callback::Event::Done { callback_data: 0 }),
+            SurfaceEvent::Commit => surface_commit(&surface, ctoken)
         },
         None,
     );
 
     // Init a window map, to track the location of our windows
-    let window_map = Rc::new(RefCell::new(WindowMap::<_, _, (), (), _>::new(
+    let window_map = Rc::new(RefCell::new(WindowMap::<_, _>::new(
         compositor_token,
         get_size as _,
     )));
@@ -86,7 +81,7 @@ pub fn init_shell(
                 surface.send_configure(ToplevelConfigure {
                     size: None,
                     states: vec![],
-                    serial: 42,
+                    serial: Serial::from(42),
                 });
                 xdg_window_map
                     .borrow_mut()
@@ -95,7 +90,7 @@ pub fn init_shell(
             XdgRequest::NewPopup { surface } => surface.send_configure(PopupConfigure {
                 size: (10, 10),
                 position: (10, 10),
-                serial: 42,
+                serial: Serial::from(42),
             }),
             _ => (),
         },
@@ -107,7 +102,7 @@ pub fn init_shell(
     let (wl_shell_state, _) = wl_shell_init(
         display,
         compositor_token,
-        move |req: ShellRequest<_, _, ()>| {
+        move |req: ShellRequest<_>| {
             if let ShellRequest::SetKind {
                 surface,
                 kind: ShellSurfaceKind::Toplevel,
@@ -135,38 +130,55 @@ pub fn init_shell(
 
 #[derive(Default)]
 pub struct SurfaceData {
-    pub buffer: Option<Resource<wl_buffer::WlBuffer>>,
+    pub buffer: Option<wl_buffer::WlBuffer>,
     // make vulkan texture data
     pub texture: bool,
     pub image: Option<Arc<vulkano::image::StorageImage<vulkano::format::Format>>>,
 }
 
 fn surface_commit(
-    surface: &Resource<wl_surface::WlSurface>,
-    token: CompositorToken<SurfaceData, Roles>,
+    surface: &wl_surface::WlSurface,
+    token: CompositorToken<Roles>,
 ) {
-    // we retrieve the contents of the associated buffer and copy it
+    // we retrieve the contents of the associated buffer and copy it 
+
     token.with_surface_data(surface, |attributes| {
+        attributes
+            .user_data
+            .insert_if_missing(|| RefCell::new(SurfaceData::default()));
+
+        let mut data = attributes
+                .user_data
+                .get::<RefCell<SurfaceData>>()
+                .unwrap()
+                .borrow_mut();
+
         match attributes.buffer.take() {
-            Some(Some((buffer, (_x, _y)))) => {
+            Some(BufferAssignment::NewBuffer {buffer, ..}) => {
                 // new contents
                 // TODO: handle hotspot coordinates
-                attributes.user_data.buffer = Some(buffer);
-                attributes.user_data.texture = false;
+                data.buffer = Some(buffer);
+                data.texture = false;
             }
-            Some(None) => {
+            Some(BufferAssignment::Removed) => {
                 // erase the contents
-                attributes.user_data.buffer = None;
-                attributes.user_data.texture = false;
+                data.buffer = None;
+                data.texture = false;
             }
             None => {}
         }
     });
 }
 
-fn get_size(attrs: &SurfaceAttributes<SurfaceData>) -> Option<(i32, i32)> {
-    if attrs.user_data.texture {
-        let d = attrs.user_data.image.as_ref().unwrap().dimensions();
+fn get_size(attrs: &SurfaceAttributes) -> Option<(i32, i32)> {
+
+    let mut data = attrs
+            .user_data
+            .get::<RefCell<SurfaceData>>()?
+            .borrow_mut();
+
+    if data.texture {
+        let d = data.image.as_ref().unwrap().dimensions();
         Some((d.width() as i32, d.height() as i32))
     } else {
         None

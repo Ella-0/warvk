@@ -6,7 +6,7 @@ use std::mem;
 use std::os::unix::io::AsRawFd;
 
 use crate::ctx::Ctx;
-use smithay::reexports::wayland_server::calloop::LoopHandle;
+use calloop::LoopHandle;
 
 #[derive(Debug)]
 #[repr(C)]

@@ -569,7 +569,7 @@ where
     //.
     pub fn load_shm_buffer(
         &mut self,
-        buffer: &Resource<wl_buffer::WlBuffer>,
+        buffer: &wl_buffer::WlBuffer,
         image: Option<Arc<vulkano::image::StorageImage<vulkano::format::Format>>>,
     ) -> (
         Arc<vulkano::image::StorageImage<vulkano::format::Format>>,
@@ -664,7 +664,7 @@ where
 
     pub fn load_shm_buffer_to_image(
         &mut self,
-        buffer: &Resource<wl_buffer::WlBuffer>,
+        buffer: &wl_buffer::WlBuffer,
     ) -> (
         Arc<ImmutableImage<vulkano::format::Format>>,
         Box<dyn GpuFuture>,
@@ -689,20 +689,14 @@ where
     pub fn render_windows(
         &mut self,
         compositor_token: smithay::wayland::compositor::CompositorToken<
-            crate::shell::SurfaceData,
             crate::shell::Roles,
         >,
         window_map: std::rc::Rc<
             std::cell::RefCell<
                 crate::window_map::WindowMap<
-                    crate::shell::SurfaceData,
                     crate::shell::Roles,
-                    (),
-                    (),
                     for<'r> fn(
-                        &'r smithay::wayland::compositor::SurfaceAttributes<
-                            crate::shell::SurfaceData,
-                        >,
+                        &'r smithay::wayland::compositor::SurfaceAttributes,
                     ) -> Option<(i32, i32)>,
                 >,
             >,
@@ -775,72 +769,82 @@ where
                         wl_surface,
                         initial_place,
                         |_surface, attributes, role, &(mut x, mut y)| {
-                            // there is actually something to draw !
-                            if !attributes.user_data.texture {
-                                if let Some(buffer) = attributes.user_data.buffer.take() {
-                                	let (texture, future) = self.load_shm_buffer(&buffer.clone(), attributes.user_data.image.clone());
-									//self.load_shm_buffer_to_image(&buffer.clone());
-									attributes.user_data.texture = true;
-									attributes.user_data.image = Some(texture);
+							if let Some(data) = attributes.user_data
+                                .get::<std::cell::RefCell<crate::shell::SurfaceData>>() {
+								let mut data = data.borrow_mut();
 
-                        			future.then_signal_fence_and_flush().unwrap()
-                            			.wait(None).unwrap();
+							
+                                // there is actually something to draw !
+                                if !data.texture {
+                                    if let Some(buffer) = data.buffer.take() {
+                                    	let (texture, future) = self.load_shm_buffer(&buffer.clone(), data.image.clone());
+    									//self.load_shm_buffer_to_image(&buffer.clone());
+    									data.texture = true;
+    									data.image = Some(texture);
+
+                            			future.then_signal_fence_and_flush().unwrap()
+                                			.wait(None).unwrap();
 
 
-									//futures.push(future);
-                                    // notify the client that we have finished reading the
-                                    // buffer
-                                    buffer.send(wl_buffer::Event::Release);
+    									//futures.push(future);
+                                        // notify the client that we have finished reading the
+                                        // buffer
+                                        buffer.release();
+                                    }
                                 }
-                            }
-                            if let Some(ref metadata) = attributes.user_data.image {
-                                if let Ok(subdata) = smithay::wayland::compositor::roles::Role::<smithay::wayland::compositor::SubsurfaceRole>::data(role) {
-                                    x += subdata.location.0;
-                                    y += subdata.location.1;
+                                if let Some(ref metadata) = data.image {
+                                    if let Ok(subdata) = smithay::wayland::compositor::roles::Role::<smithay::wayland::compositor::SubsurfaceRole>::data(role) {
+                                        x += subdata.location.0;
+                                        y += subdata.location.1;
+                                    }
+    								let uniform_buffer = vulkano::buffer::CpuBufferPool::<vs::ty::Data>::new(self.device.clone(), BufferUsage::all());
+
+    								let xscale = (metadata.dimensions().width() as f32) / (self.dimensions[0] as f32);
+                                    let mut yscale = (metadata.dimensions().height() as f32) / (self.dimensions[1] as f32);
+
+                                    let xpos = 2.0 * (self.dimensions[0] as f32 / 2.0) / (self.dimensions[0] as f32) - 1.0;
+                                    let mut ypos = 1.0 - 2.0 * (self.dimensions[1] as f32 / 2.0) / (self.dimensions[1] as f32);
+                                    
+
+    								let uniform_data = vs::ty::Data {
+    									matrix: [
+                                            [xscale,   0.0  , 0.0, 0.0],
+                                            [  0.0 , yscale , 0.0, 0.0],
+                                            [  0.0 ,   0.0  , 1.0, 0.0],
+                                            [xpos  , ypos   , 0.0, 1.0]
+    									]
+    								};
+    								let sub_buffer = uniform_buffer.next(uniform_data).unwrap();
+
+                                    let set = Arc::new(
+                                        vulkano::descriptor::descriptor_set::PersistentDescriptorSet::start(layout.clone())
+                                            .add_buffer(sub_buffer).unwrap()
+    										.add_sampled_image(metadata.clone(), self.sampler.clone())
+                                            .unwrap()
+                                            .build()
+                                            .unwrap(),
+                                    );
+
+                                    let _ = builder.draw(
+                                        self.pipeline.clone(),
+                                        &self.dynamic_state,
+                                        vec![self.vertex_buffer.clone()],
+                                        set.clone(),
+                                        (),
+                                    ).expect("Failed to render shm");
+    										
+                                    //vk_ctx.run();
+                                    smithay::wayland::compositor::TraversalAction::DoChildren((x, y))
+                                } else {
+                                    // we are not display, so our children are neither
+                                    smithay::wayland::compositor::TraversalAction::SkipChildren
                                 }
-								let uniform_buffer = vulkano::buffer::CpuBufferPool::<vs::ty::Data>::new(self.device.clone(), BufferUsage::all());
-
-								let xscale = (metadata.dimensions().width() as f32) / (self.dimensions[0] as f32);
-                                let mut yscale = (metadata.dimensions().height() as f32) / (self.dimensions[1] as f32);
-
-                                let xpos = 2.0 * (self.dimensions[0] as f32 / 2.0) / (self.dimensions[0] as f32) - 1.0;
-                                let mut ypos = 1.0 - 2.0 * (self.dimensions[1] as f32 / 2.0) / (self.dimensions[1] as f32);
-                                
-
-								let uniform_data = vs::ty::Data {
-									matrix: [
-                                        [xscale,   0.0  , 0.0, 0.0],
-                                        [  0.0 , yscale , 0.0, 0.0],
-                                        [  0.0 ,   0.0  , 1.0, 0.0],
-                                        [xpos  , ypos   , 0.0, 1.0]
-									]
-								};
-								let sub_buffer = uniform_buffer.next(uniform_data).unwrap();
-
-                                let set = Arc::new(
-                                    vulkano::descriptor::descriptor_set::PersistentDescriptorSet::start(layout.clone())
-                                        .add_buffer(sub_buffer).unwrap()
-										.add_sampled_image(metadata.clone(), self.sampler.clone())
-                                        .unwrap()
-                                        .build()
-                                        .unwrap(),
-                                );
-
-                                let _ = builder.draw(
-                                    self.pipeline.clone(),
-                                    &self.dynamic_state,
-                                    vec![self.vertex_buffer.clone()],
-                                    set.clone(),
-                                    (),
-                                ).expect("Failed to render shm");
-										
-                                //vk_ctx.run();
-                                smithay::wayland::compositor::TraversalAction::DoChildren((x, y))
-                            } else {
-                                // we are not display, so our children are neither
+							} else {
                                 smithay::wayland::compositor::TraversalAction::SkipChildren
-                            }
+							}
                         },
+						|_, _, _, _| (),
+						|_, _, _, _| true
                     );
                 }
             },

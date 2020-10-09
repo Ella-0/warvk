@@ -6,7 +6,7 @@ use smithay::reexports::wayland_server::{
     Display, Resource,
 };
 
-use smithay::reexports::wayland_server::calloop::{generic::Generic, LoopHandle};
+use calloop::{generic::Generic, LoopHandle};
 
 use smithay::{
     backend::session::{auto::AutoSession, direct::DirectSession, Session},
@@ -31,15 +31,12 @@ use crate::ctx::Ctx;
 
 pub struct WlCtx {
     pub display: Rc<RefCell<Display>>,
-    pub compositor_token: CompositorToken<crate::shell::SurfaceData, crate::shell::Roles>,
+    pub compositor_token: CompositorToken<crate::shell::Roles>,
     pub window_map: Rc<
         RefCell<
             crate::window_map::WindowMap<
-                crate::shell::SurfaceData,
                 crate::shell::Roles,
-                (),
-                (),
-                for<'r> fn(&'r SurfaceAttributes<crate::shell::SurfaceData>) -> Option<(i32, i32)>,
+                for<'r> fn(&'r SurfaceAttributes) -> Option<(i32, i32)>,
             >,
         >,
     >,
@@ -50,22 +47,44 @@ impl WlCtx {
     where
         W: Send + Sync + 'static,
     {
-        let mut display = Display::new(loop_handle);
-        let socket = display.add_socket_auto().expect("Failed to add socket");
+
+        let mut display = Rc::new(RefCell::new(Display::new()));
+
+        let _wayland_event_source = loop_handle
+            .insert_source(
+                Generic::from_fd(display.borrow().get_poll_fd(), calloop::Interest::Readable, calloop::Mode::Level),
+                {
+                    let display = display.clone();
+                    let log = None::<()>;
+                    move |_, _, state: &mut Ctx<W>| {
+                        let mut display = display.borrow_mut();
+                        match display.dispatch(std::time::Duration::from_millis(0), state) {
+                            Ok(_) => Ok(()),
+                            Err(e) => {
+                                println!("I/O error on the Wayland display: {}", e);
+                                Err(e)
+                            }
+                        }
+                    }
+                },
+            )
+            .expect("Failed to init the wayland event source.");
+
+        let socket = display.borrow_mut().add_socket_auto().expect("Failed to add socket");
         println!("║ Using socket {:#?}", socket);
 
         std::env::set_var("WAYLAND_DISPLAY", socket);
 
-        init_shm_global(&mut display, vec![], None);
+        init_shm_global(&mut display.borrow_mut(), vec![], None);
 
-        let (compositor_token, _, _, window_map) = crate::shell::init_shell(&mut display);
+        let (compositor_token, _, _, window_map) = crate::shell::init_shell(&mut display.borrow_mut());
 
         let dnd_icon = Arc::new(Mutex::new(None));
 
         let dnd_icon2 = dnd_icon.clone();
 
         init_data_device(
-            &mut display,
+            &mut display.borrow_mut(),
             move |event| match event {
                 DataDeviceEvent::DnDStarted { icon, .. } => {
                     *dnd_icon2.lock().unwrap() = icon;
@@ -80,7 +99,7 @@ impl WlCtx {
             None,
         );
 
-        let (mut seat, _) = Seat::new(&mut display, "winit".into(), compositor_token.clone(), None);
+        let (mut seat, _) = Seat::new(&mut display.borrow_mut(), "winit".into(), compositor_token.clone(), None);
 
         let cursor_status = Arc::new(Mutex::new(CursorImageStatus::Default));
 
@@ -91,14 +110,14 @@ impl WlCtx {
             *cursor_status2.lock().unwrap() = new_status
         });
 
-        let keyboard = seat
+        /*let keyboard = seat
             .add_keyboard(XkbConfig::default(), 1000, 500, |seat, focus| {
                 set_data_device_focus(seat, focus.and_then(|s| s.client()))
             })
-            .expect("Failed to initialize the keyboard");
+            .expect("Failed to initialize the keyboard");*/
 
         let (output, _) = Output::new(
-            &mut display,
+            &mut display.borrow_mut(),
             "Winit".into(),
             PhysicalProperties {
                 width: 1920,
@@ -132,7 +151,7 @@ impl WlCtx {
         //    .expect("Failed to spawn");
 
         WlCtx {
-            display: Rc::new(RefCell::new(display)),
+            display,
             compositor_token,
             window_map,
         }
