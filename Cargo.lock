@@ -914,7 +914,7 @@ checksum = "fbee7696b84bbf3d89a1c2eccff0850e3047ed46bfcd2e92c29a2d074d57e252"
 [[package]]
 name = "smithay"
 version = "0.2.0"
-source = "git+https://github.com/smithay/smithay#04625405a0a5dd76010807ce69bc6574e73aef50"
+source = "git+https://github.com/smithay/smithay?branch=vberger/fix-frames#d46e939070cee452520101b46238723d400bdf4a"
 dependencies = [
  "bitflags",
  "calloop 0.6.4",

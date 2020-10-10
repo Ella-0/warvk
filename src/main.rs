@@ -17,9 +17,9 @@ use wl::WlCtx;
 
 use std::env;
 
-use smithay::reexports::wayland_server::Display;
-use calloop::LoopHandle;
 use calloop::EventLoop;
+use calloop::LoopHandle;
+use smithay::reexports::wayland_server::Display;
 
 fn warvk<W>(vk_ctx: VkCtx<W>)
 where
@@ -41,6 +41,8 @@ where
         wl_ctx: wl_ctx.clone(),
     };
 
+	let start_time = std::time::Instant::now();
+
     while !should_close {
         if let Ok(event) = kbd_rx.try_recv() {
             if kbd::is_key_press(event.value) {
@@ -51,9 +53,24 @@ where
             }
         }
 
+		wl_ctx.clone().borrow_mut().window_map.borrow_mut().send_frames(start_time.elapsed().as_millis() as u32);
+        wl_ctx
+            .clone()
+            .borrow_mut()
+            .display
+            .borrow_mut()
+            .flush_clients(&mut ctx);
         ctx.run();
+
+        wl_ctx
+            .clone()
+            .borrow_mut()
+            .display
+            .borrow_mut()
+            .flush_clients(&mut ctx);
         let _ = event_loop.dispatch(Some(Duration::from_millis(16)), &mut ctx);
-		wl_ctx.clone().borrow_mut().display.borrow_mut().flush_clients(&mut ctx);
+
+
         //wl_ctx.borrow_mut().run(&mut ctx);
         //vk_ctx.borrow_mut().run();
     }

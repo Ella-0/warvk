@@ -10,8 +10,9 @@ use smithay::{
         Display, Resource,
     },
     wayland::{
-		Serial,
-        compositor::{compositor_init, CompositorToken, SurfaceAttributes, SurfaceEvent, BufferAssignment},
+        compositor::{
+            compositor_init, BufferAssignment, CompositorToken, SurfaceAttributes, SurfaceEvent,
+        },
         data_device::DnDIconRole,
         seat::CursorImageRole,
         shell::{
@@ -24,6 +25,7 @@ use smithay::{
                 XdgRequest, XdgSurfaceRole,
             },
         },
+        Serial,
     },
 };
 
@@ -38,10 +40,7 @@ define_roles!(Roles =>
     [ CursorImage, CursorImageRole ]
 );
 
-pub type MyWindowMap = WindowMap<
-    Roles,
-    fn(&SurfaceAttributes) -> Option<(i32, i32)>,
->;
+pub type MyWindowMap = WindowMap<Roles, fn(&SurfaceAttributes) -> Option<(i32, i32)>>;
 
 pub type MyCompositorToken = CompositorToken<Roles>;
 
@@ -57,7 +56,7 @@ pub fn init_shell(
     let (compositor_token, _, _) = compositor_init(
         display,
         move |request, surface, ctoken| match request {
-            SurfaceEvent::Commit => surface_commit(&surface, ctoken)
+            SurfaceEvent::Commit => surface_commit(&surface, ctoken),
         },
         None,
     );
@@ -137,11 +136,18 @@ pub struct SurfaceData {
     pub frame_callback: Option<wl_callback::WlCallback>,
 }
 
-fn surface_commit(
-    surface: &wl_surface::WlSurface,
-    token: CompositorToken<Roles>,
-) {
-    // we retrieve the contents of the associated buffer and copy it 
+impl SurfaceData {
+
+    pub fn send_frame(&mut self, time: u32) {
+        if let Some(callback) = self.frame_callback.take() {
+            callback.done(time);
+        }
+	}
+
+}
+
+fn surface_commit(surface: &wl_surface::WlSurface, token: CompositorToken<Roles>) {
+    // we retrieve the contents of the associated buffer and copy it
 
     token.with_surface_data(surface, |attributes| {
         attributes
@@ -149,13 +155,13 @@ fn surface_commit(
             .insert_if_missing(|| RefCell::new(SurfaceData::default()));
 
         let mut data = attributes
-                .user_data
-                .get::<RefCell<SurfaceData>>()
-                .unwrap()
-                .borrow_mut();
+            .user_data
+            .get::<RefCell<SurfaceData>>()
+            .unwrap()
+            .borrow_mut();
 
         match attributes.buffer.take() {
-            Some(BufferAssignment::NewBuffer {buffer, ..}) => {
+            Some(BufferAssignment::NewBuffer { buffer, .. }) => {
                 // new contents
                 // TODO: handle hotspot coordinates
                 data.buffer = Some(buffer);
@@ -169,9 +175,9 @@ fn surface_commit(
             None => {}
         };
 
-		use smithay::wayland::SERIAL_COUNTER as SCOUNTER;
+        use smithay::wayland::SERIAL_COUNTER as SCOUNTER;
 
-		if let Some(callback) = attributes.frame_callback.take() {
+        if let Some(callback) = attributes.frame_callback.take() {
             if let Some(old_callback) = data.frame_callback.take() {
                 // fire the old unfired callback to clean it up
                 old_callback.done(SCOUNTER.next_serial().into());
@@ -182,11 +188,7 @@ fn surface_commit(
 }
 
 fn get_size(attrs: &SurfaceAttributes) -> Option<(i32, i32)> {
-
-    let mut data = attrs
-            .user_data
-            .get::<RefCell<SurfaceData>>()?
-            .borrow_mut();
+    let mut data = attrs.user_data.get::<RefCell<SurfaceData>>()?.borrow_mut();
 
     if data.texture {
         let d = data.image.as_ref().unwrap().dimensions();

@@ -19,5 +19,6 @@ winit = "0.22"
 
 [dependencies.smithay]
 git = "https://github.com/smithay/smithay"
+branch = "vberger/fix-frames"
 default-features = false
 features = [ "wayland_frontend", "backend_session", "backend_session_logind", "backend_libinput"]

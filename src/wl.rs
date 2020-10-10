@@ -47,12 +47,15 @@ impl WlCtx {
     where
         W: Send + Sync + 'static,
     {
-
         let mut display = Rc::new(RefCell::new(Display::new()));
 
         let _wayland_event_source = loop_handle
             .insert_source(
-                Generic::from_fd(display.borrow().get_poll_fd(), calloop::Interest::Readable, calloop::Mode::Level),
+                Generic::from_fd(
+                    display.borrow().get_poll_fd(),
+                    calloop::Interest::Readable,
+                    calloop::Mode::Level,
+                ),
                 {
                     let display = display.clone();
                     let log = None::<()>;
@@ -70,14 +73,18 @@ impl WlCtx {
             )
             .expect("Failed to init the wayland event source.");
 
-        let socket = display.borrow_mut().add_socket_auto().expect("Failed to add socket");
+        let socket = display
+            .borrow_mut()
+            .add_socket_auto()
+            .expect("Failed to add socket");
         println!("║ Using socket {:#?}", socket);
 
         std::env::set_var("WAYLAND_DISPLAY", socket);
 
         init_shm_global(&mut display.borrow_mut(), vec![], None);
 
-        let (compositor_token, _, _, window_map) = crate::shell::init_shell(&mut display.borrow_mut());
+        let (compositor_token, _, _, window_map) =
+            crate::shell::init_shell(&mut display.borrow_mut());
 
         let dnd_icon = Arc::new(Mutex::new(None));
 
@@ -99,7 +106,12 @@ impl WlCtx {
             None,
         );
 
-        let (mut seat, _) = Seat::new(&mut display.borrow_mut(), "winit".into(), compositor_token.clone(), None);
+        let (mut seat, _) = Seat::new(
+            &mut display.borrow_mut(),
+            "winit".into(),
+            compositor_token.clone(),
+            None,
+        );
 
         let cursor_status = Arc::new(Mutex::new(CursorImageStatus::Default));
 
@@ -111,10 +123,10 @@ impl WlCtx {
         });
 
         /*let keyboard = seat
-            .add_keyboard(XkbConfig::default(), 1000, 500, |seat, focus| {
-                set_data_device_focus(seat, focus.and_then(|s| s.client()))
-            })
-            .expect("Failed to initialize the keyboard");*/
+        .add_keyboard(XkbConfig::default(), 1000, 500, |seat, focus| {
+            set_data_device_focus(seat, focus.and_then(|s| s.client()))
+        })
+        .expect("Failed to initialize the keyboard");*/
 
         let (output, _) = Output::new(
             &mut display.borrow_mut(),
@@ -131,8 +143,8 @@ impl WlCtx {
 
         output.change_current_state(
             Some(Mode {
-                width: 1080 as i32,
-                height: 1920 as i32,
+                width: 1920 as i32,
+                height: 1080 as i32,
                 refresh: 60_000,
             }),
             None,
@@ -140,11 +152,10 @@ impl WlCtx {
         );
 
         output.set_preferred(Mode {
-            width: 1080 as i32,
-            height: 1920 as i32,
+            width: 1920 as i32,
+            height: 1080 as i32,
             refresh: 60_000,
         });
-
 
         let pointer_location = Rc::new(RefCell::new((0.0, 0.0)));
 

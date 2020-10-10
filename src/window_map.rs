@@ -51,11 +51,11 @@ where
         &self,
         point: (f64, f64),
         ctoken: CompositorToken<R>,
-		get_size: F,
+        get_size: F,
     ) -> Option<(wl_surface::WlSurface, (f64, f64))>
-	where
-		F: Fn(&SurfaceAttributes) -> Option<(i32, i32)>,
-	{
+    where
+        F: Fn(&SurfaceAttributes) -> Option<(i32, i32)>,
+    {
         if !self.surface.contains((point.0 as i32, point.1 as i32)) {
             return None;
         }
@@ -66,28 +66,31 @@ where
                 wl_surface,
                 self.location,
                 |wl_surface, attributes, role, &(mut x, mut y)| {
-                    let data = attributes.user_data.get::<std::cell::RefCell<crate::shell::SurfaceData>>();
-					if let Some((w, h)) = get_size(attributes) {
+                    let data = attributes
+                        .user_data
+                        .get::<std::cell::RefCell<crate::shell::SurfaceData>>();
+                    if let Some((w, h)) = get_size(attributes) {
                         if let Ok(subdata) = Role::<SubsurfaceRole>::data(role) {
                             x += subdata.location.0;
                             y += subdata.location.1;
                         }
 
-						let my_rect = Rectangle {
-							x,
-							y,
-							width: w,
-							height: h,
-						};
+                        let my_rect = Rectangle {
+                            x,
+                            y,
+                            width: w,
+                            height: h,
+                        };
 
                         if my_rect.contains((point.0 as i32, point.1 as i32)) {
-                            *found.borrow_mut() = Some((wl_surface.clone(), (my_rect.x as f64, my_rect.y as f64)));
+                            *found.borrow_mut() =
+                                Some((wl_surface.clone(), (my_rect.x as f64, my_rect.y as f64)));
                         }
 
                         TraversalAction::DoChildren((x, y))
-					} else {
-						TraversalAction::SkipChildren
-					}
+                    } else {
+                        TraversalAction::SkipChildren
+                    }
                 },
                 |_, _, _, _| {},
                 |_, _, _, _| {
@@ -133,8 +136,8 @@ where
                         TraversalAction::SkipChildren
                     }
                 },
-				|_, _, _, _| {},
-				|_, _, _, _| true,
+                |_, _, _, _| {},
+                |_, _, _, _| true,
             );
         }
         self.surface = Rectangle {
@@ -144,6 +147,26 @@ where
             height: max_y - min_y,
         };
     }
+
+
+    pub fn send_frame(&self, time: u32, ctoken: CompositorToken<R>) {
+        if let Some(wl_surface) = self.toplevel.get_surface() {
+            ctoken.with_surface_tree_downward(
+                wl_surface,
+                (),
+                |_, _, _, &()| TraversalAction::DoChildren(()),
+                |_, attributes, _, &()| {
+                    // the surface may not have any user_data if it is a subsurface and has not
+                    // yet been commited
+                    if let Some(data) = attributes.user_data.get::<std::cell::RefCell<crate::shell::SurfaceData>>() {
+                        data.borrow_mut().send_frame(time)
+                    }
+                },
+                |_, _, _, &()| true,
+            );
+        }
+    }
+
 }
 
 pub struct WindowMap<R, F> {
@@ -231,4 +254,11 @@ where
     pub fn clear(&mut self) {
         self.windows.clear();
     }
+
+	pub fn send_frames(&self, time: u32) {
+        for window in &self.windows {
+            window.send_frame(time, self.ctoken);
+        }
+    }
+
 }

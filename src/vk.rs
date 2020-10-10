@@ -19,10 +19,7 @@ use vulkano::{
 };
 
 use smithay::reexports::wayland_server::{protocol::wl_buffer, Resource};
-use smithay::wayland::{
-	shm,
-	SERIAL_COUNTER as SCOUNTER
-};
+use smithay::wayland::{shm, SERIAL_COUNTER as SCOUNTER};
 
 extern crate vk_sys as vk;
 
@@ -96,8 +93,7 @@ pub fn choose_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
             physical_device.ty()
         );
 
-        if physical_device_ret.is_none()
-        || physical_device.ty() == PhysicalDeviceType::DiscreteGpu
+        if physical_device_ret.is_none() //|| physical_device.ty() == PhysicalDeviceType::DiscreteGpu
         {
             physical_device_ret = Some(physical_device);
         }
@@ -356,6 +352,7 @@ pub fn create_pipeline<V: Vertex>(
             // We have to indicate which subpass of which render pass this pipeline is going to be used
             // in. The pipeline will only be usable from this particular subpass.
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .blend_alpha_blending()
             // Now that our builder is filled, we call `build()` to obtain an actual pipeline.
             .build(device.clone())
             .unwrap(),
@@ -397,6 +394,7 @@ pub struct VkCtx<W>
 where
     W: Send + Sync + 'static,
 {
+	start_time: std::time::Instant,
     debug_callback: Option<vulkano::instance::debug::DebugCallback>,
     surface: Arc<Surface<W>>,
     device: Arc<Device>,
@@ -551,6 +549,7 @@ where
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
 
         VkCtx::<W> {
+			start_time: std::time::Instant::now(),
             debug_callback,
             surface,
             device,
@@ -588,12 +587,12 @@ where
             let stride = data.stride as usize;
 
             //let slice: Cow<'_, [u8]> = if stride == width * pixelsize {
-                // the buffer is cleanly continuous, use as-is
+            // the buffer is cleanly continuous, use as-is
             //    Cow::Borrowed(&pool[offset..(offset + height * width * pixelsize)])
             //} else {
-                // the buffer is discontinuous or lines overlap
-                // we need to make a copy as unfortunately Glium does not
-                // expose the OpenGL APIs we would need to load this buffer :/
+            // the buffer is discontinuous or lines overlap
+            // we need to make a copy as unfortunately Glium does not
+            // expose the OpenGL APIs we would need to load this buffer :/
             //    let mut data = Vec::with_capacity(height * width * pixelsize);
             //    for i in 0..height {
             //        data.extend(
@@ -619,7 +618,7 @@ where
                 vulkano::image::StorageImage::with_usage(
                     self.device.clone(),
                     dim,
-                    vulkano::format::Format::R8G8B8A8Srgb,
+                    vulkano::format::Format::R8G8B8A8Unorm,
                     usage,
                     Some(self.queue.family()),
                 )
@@ -691,9 +690,7 @@ where
 
     pub fn render_windows(
         &mut self,
-        compositor_token: smithay::wayland::compositor::CompositorToken<
-            crate::shell::Roles,
-        >,
+        compositor_token: smithay::wayland::compositor::CompositorToken<crate::shell::Roles>,
         window_map: std::rc::Rc<
             std::cell::RefCell<
                 crate::window_map::WindowMap<
@@ -836,9 +833,9 @@ where
                                         (),
                                     ).expect("Failed to render shm");
 
-                                    if let Some(callback) = data.frame_callback.take() {
-                                        callback.done(SCOUNTER.next_serial().into());
-                                    }
+                                    //if let Some(callback) = data.frame_callback.take() {
+                                    //    callback.done(self.start_time.elapsed().as_millis() as u32);
+                                    //}
 
                                     //vk_ctx.run();
                                     smithay::wayland::compositor::TraversalAction::DoChildren((x, y))
