@@ -134,6 +134,7 @@ pub struct SurfaceData {
     // make vulkan texture data
     pub texture: bool,
     pub image: Option<Arc<vulkano::image::StorageImage<vulkano::format::Format>>>,
+    pub frame_callback: Option<wl_callback::WlCallback>,
 }
 
 fn surface_commit(
@@ -166,6 +167,16 @@ fn surface_commit(
                 data.texture = false;
             }
             None => {}
+        };
+
+		use smithay::wayland::SERIAL_COUNTER as SCOUNTER;
+
+		if let Some(callback) = attributes.frame_callback.take() {
+            if let Some(old_callback) = data.frame_callback.take() {
+                // fire the old unfired callback to clean it up
+                old_callback.done(SCOUNTER.next_serial().into());
+            }
+            data.frame_callback = Some(callback);
         }
     });
 }

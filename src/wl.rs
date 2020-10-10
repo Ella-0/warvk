@@ -120,14 +120,31 @@ impl WlCtx {
             &mut display.borrow_mut(),
             "Winit".into(),
             PhysicalProperties {
-                width: 1920,
-                height: 1080,
+                width: 0,
+                height: 0,
                 subpixel: wl_output::Subpixel::Unknown,
                 make: "Smithay".into(),
                 model: "WaRVk".into(),
             },
             None,
         );
+
+        output.change_current_state(
+            Some(Mode {
+                width: 1080 as i32,
+                height: 1920 as i32,
+                refresh: 60_000,
+            }),
+            None,
+            None,
+        );
+
+        output.set_preferred(Mode {
+            width: 1080 as i32,
+            height: 1920 as i32,
+            refresh: 60_000,
+        });
+
 
         let pointer_location = Rc::new(RefCell::new((0.0, 0.0)));
 

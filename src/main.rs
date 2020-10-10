@@ -21,8 +21,6 @@ use smithay::reexports::wayland_server::Display;
 use calloop::LoopHandle;
 use calloop::EventLoop;
 
-use slog::Drain;
-
 fn warvk<W>(vk_ctx: VkCtx<W>)
 where
     W: Send + Sync + 'static,

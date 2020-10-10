@@ -19,7 +19,10 @@ use vulkano::{
 };
 
 use smithay::reexports::wayland_server::{protocol::wl_buffer, Resource};
-use smithay::wayland::shm;
+use smithay::wayland::{
+	shm,
+	SERIAL_COUNTER as SCOUNTER
+};
 
 extern crate vk_sys as vk;
 
@@ -832,7 +835,11 @@ where
                                         set.clone(),
                                         (),
                                     ).expect("Failed to render shm");
-    										
+
+                                    if let Some(callback) = data.frame_callback.take() {
+                                        callback.done(SCOUNTER.next_serial().into());
+                                    }
+
                                     //vk_ctx.run();
                                     smithay::wayland::compositor::TraversalAction::DoChildren((x, y))
                                 } else {
