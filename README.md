@@ -9,6 +9,13 @@ WaRVk is a Wayland compositor written in Rust using Vulkan.
  - libinput
  - vulkan
 
+## TODO
+
+ - [] Refactor `window_map.rs` to better suit tiling
+ - [] Refactor `shell.rs`
+ - [] Fix framerate issue shown with `weston-simple-egl` without `-b` flag
+
+
 ## License
 Some of the code in `src/vk.rs` is directly taken from the `github.com/vulkano-rs/vulkano`
 ```
