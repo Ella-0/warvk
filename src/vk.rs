@@ -643,8 +643,9 @@ where
     }
 }
 
-impl<W> RenderCtx for VkCtx<W> 
-where W: Send + Sync + 'static
+impl<W> RenderCtx for VkCtx<W>
+where
+    W: Send + Sync + 'static,
 {
     fn render_windows(
         &mut self,

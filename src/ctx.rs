@@ -6,12 +6,18 @@ use crate::wl::WlCtx;
 
 pub trait RenderCtx {
     fn render_windows(
-		&mut self,
+        &mut self,
         token: smithay::wayland::compositor::CompositorToken<crate::shell::Roles>,
-        window_map: Rc<RefCell<crate::window_map::WindowMap<
-            crate::shell::Roles,
-            for<'r> fn(&'r smithay::wayland::compositor::SurfaceAttributes) -> Option<(i32, i32)>,
-        >>>,
+        window_map: Rc<
+            RefCell<
+                crate::window_map::WindowMap<
+                    crate::shell::Roles,
+                    for<'r> fn(
+                        &'r smithay::wayland::compositor::SurfaceAttributes,
+                    ) -> Option<(i32, i32)>,
+                >,
+            >,
+        >,
     );
 }
 

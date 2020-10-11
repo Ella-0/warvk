@@ -33,7 +33,7 @@ where
 
     let mut should_close = false;
 
-	let vk_ctx: Box<dyn crate::ctx::RenderCtx> = Box::new(vk_ctx);
+    let vk_ctx: Box<dyn crate::ctx::RenderCtx> = Box::new(vk_ctx);
 
     let vk_ctx = Rc::new(RefCell::new(vk_ctx));
     let wl_ctx = Rc::new(RefCell::new(WlCtx::init(event_loop.handle())));
@@ -106,6 +106,8 @@ fn main() {
 
     let prefer_discrete = prefer_discrete;
     let winit = winit;
+
+	ash::AshCtx::init();
 
     if winit {
         warvk(VkCtx::<winit::window::Window>::init(prefer_discrete));
