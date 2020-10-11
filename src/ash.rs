@@ -114,6 +114,49 @@ impl AshCtx {
             }
         };
 
+		let physical_devices = unsafe {
+    		instance
+    			.enumerate_physical_devices()
+    			.expect("Error enumerating physical devices")
+		};
+		let display_loader = khr::Display::new(&entry, &instance);
+		let surface_loader = khr::Surface::new(&entry, &instance);
+
+		let (physical_device, queue_family_index) = unsafe {
+    		physical_devices.iter()
+    			.map(|physical_device| {
+    				instance.get_physical_device_queue_family_properties(*physical_device)
+    					.iter()
+    					.enumerate()
+    					.filter_map(|(index, ref info)| {
+    						if info.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+    							Some((*physical_device, index))
+    						} else {
+    							None
+    						}
+    					})
+    					.next()
+    			})
+    			.filter_map(|v| v)
+    			.next()
+    			.expect("Could not find suitable device.")
+		};
+
+		let displays = unsafe {
+			display_loader.get_physical_device_display_properties(
+				physical_device
+			)
+			.expect("Failed to enumerate displays")
+		};
+
+		for display in &displays {
+			println!("{:#?}", unsafe {
+				CStr::from_ptr(display.display_name)
+			});
+		}
+
+		let display = displays.iter().next().expect("No displays found");
+
         AshCtx {
             instance,
             debug_utils_loader,
@@ -125,9 +168,9 @@ impl AshCtx {
 impl Drop for AshCtx {
     fn drop(&mut self) {
         unsafe {
-            self.debug_utils_loader
-                .destroy_debug_utils_messenger(self.debug_call_back, None);
-            self.instance.destroy_instance(None);
+            //self.debug_utils_loader
+            //    .destroy_debug_utils_messenger(self.debug_call_back, None);
+            //self.instance.destroy_instance(None);
         }
     }
 }
