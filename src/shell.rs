@@ -137,13 +137,11 @@ pub struct SurfaceData {
 }
 
 impl SurfaceData {
-
     pub fn send_frame(&mut self, time: u32) {
         if let Some(callback) = self.frame_callback.take() {
             callback.done(time);
         }
-	}
-
+    }
 }
 
 fn surface_commit(surface: &wl_surface::WlSurface, token: CompositorToken<Roles>) {

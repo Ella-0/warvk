@@ -30,6 +30,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ash"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c69a8137596e84c22d57f3da1b5de1d4230b1742a710091c85f4d7ce50f00f38"
+dependencies = [
+ "libloading",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1092,6 +1101,7 @@ dependencies = [
 name = "warvk"
 version = "0.1.0"
 dependencies = [
+ "ash",
  "calloop 0.6.4",
  "smithay",
  "vk-sys",

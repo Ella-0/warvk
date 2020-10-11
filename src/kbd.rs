@@ -279,10 +279,7 @@ pub fn is_key_press(value: i32) -> bool {
     value == KEY_PRESS
 }
 
-pub fn init<W>(loop_handle: LoopHandle<Ctx<W>>) -> std::sync::mpsc::Receiver<InputEvent>
-where
-    W: Send + Sync + 'static,
-{
+pub fn init(loop_handle: LoopHandle<Ctx>) -> std::sync::mpsc::Receiver<InputEvent> {
     println!("╠══ kbd init");
 
     let (tx, rx) = std::sync::mpsc::channel::<InputEvent>();

@@ -4,21 +4,26 @@ use std::rc::Rc;
 use crate::vk::VkCtx;
 use crate::wl::WlCtx;
 
+pub trait RenderCtx {
+    fn render_windows(
+		&mut self,
+        token: smithay::wayland::compositor::CompositorToken<crate::shell::Roles>,
+        window_map: Rc<RefCell<crate::window_map::WindowMap<
+            crate::shell::Roles,
+            for<'r> fn(&'r smithay::wayland::compositor::SurfaceAttributes) -> Option<(i32, i32)>,
+        >>>,
+    );
+}
+
 #[derive(Clone)]
-pub struct Ctx<W>
-where
-    W: Send + Sync + 'static,
-{
-    pub vk_ctx: Rc<RefCell<VkCtx<W>>>,
+pub struct Ctx {
+    pub vk_ctx: Rc<RefCell<Box<dyn RenderCtx>>>,
     pub wl_ctx: Rc<RefCell<WlCtx>>,
 }
 
 use smithay::reexports::wayland_server::protocol::wl_buffer::{self, WlBuffer};
 use smithay::wayland::compositor::{roles::Role, SubsurfaceRole, TraversalAction};
-impl<W> Ctx<W>
-where
-    W: Send + Sync + 'static,
-{
+impl Ctx {
     pub fn run(&mut self) {
         // self.wl_ctx.input.dspatch_new_events().unwrap()
 

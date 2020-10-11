@@ -148,7 +148,6 @@ where
         };
     }
 
-
     pub fn send_frame(&self, time: u32, ctoken: CompositorToken<R>) {
         if let Some(wl_surface) = self.toplevel.get_surface() {
             ctoken.with_surface_tree_downward(
@@ -158,7 +157,10 @@ where
                 |_, attributes, _, &()| {
                     // the surface may not have any user_data if it is a subsurface and has not
                     // yet been commited
-                    if let Some(data) = attributes.user_data.get::<std::cell::RefCell<crate::shell::SurfaceData>>() {
+                    if let Some(data) = attributes
+                        .user_data
+                        .get::<std::cell::RefCell<crate::shell::SurfaceData>>()
+                    {
                         data.borrow_mut().send_frame(time)
                     }
                 },
@@ -166,7 +168,6 @@ where
             );
         }
     }
-
 }
 
 pub struct WindowMap<R, F> {
@@ -255,10 +256,9 @@ where
         self.windows.clear();
     }
 
-	pub fn send_frames(&self, time: u32) {
+    pub fn send_frames(&self, time: u32) {
         for window in &self.windows {
             window.send_frame(time, self.ctoken);
         }
     }
-
 }

@@ -1,9 +1,9 @@
 mod kbd;
 mod wl;
 
-mod vk;
-
+mod ash;
 mod ctx;
+mod vk;
 
 mod shell;
 mod window_map;
@@ -33,6 +33,8 @@ where
 
     let mut should_close = false;
 
+	let vk_ctx: Box<dyn crate::ctx::RenderCtx> = Box::new(vk_ctx);
+
     let vk_ctx = Rc::new(RefCell::new(vk_ctx));
     let wl_ctx = Rc::new(RefCell::new(WlCtx::init(event_loop.handle())));
 
@@ -41,7 +43,7 @@ where
         wl_ctx: wl_ctx.clone(),
     };
 
-	let start_time = std::time::Instant::now();
+    let start_time = std::time::Instant::now();
 
     while !should_close {
         if let Ok(event) = kbd_rx.try_recv() {
@@ -53,7 +55,12 @@ where
             }
         }
 
-		wl_ctx.clone().borrow_mut().window_map.borrow_mut().send_frames(start_time.elapsed().as_millis() as u32);
+        wl_ctx
+            .clone()
+            .borrow_mut()
+            .window_map
+            .borrow_mut()
+            .send_frames(start_time.elapsed().as_millis() as u32);
         wl_ctx
             .clone()
             .borrow_mut()
@@ -70,7 +77,6 @@ where
             .flush_clients(&mut ctx);
         let _ = event_loop.dispatch(Some(Duration::from_millis(16)), &mut ctx);
 
-
         //wl_ctx.borrow_mut().run(&mut ctx);
         //vk_ctx.borrow_mut().run();
     }
@@ -81,13 +87,29 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
 
-    if let Some(arg) = args.get(1) {
-        if arg == "--winit" {
-            warvk(VkCtx::<winit::window::Window>::init());
-        } else {
-            panic!("Unsupported");
+    let mut prefer_discrete = false;
+    let mut winit = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--winit" => {
+                winit = true;
+            }
+            "--discrete" => {
+                prefer_discrete = true;
+            }
+            _ => {
+                println!("Unsupported option {}", arg);
+            }
         }
+    }
+
+    let prefer_discrete = prefer_discrete;
+    let winit = winit;
+
+    if winit {
+        warvk(VkCtx::<winit::window::Window>::init(prefer_discrete));
     } else {
-        warvk(VkCtx::<()>::init());
+        warvk(VkCtx::<()>::init(prefer_discrete));
     }
 }

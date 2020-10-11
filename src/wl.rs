@@ -43,10 +43,7 @@ pub struct WlCtx {
 }
 
 impl WlCtx {
-    pub fn init<W>(loop_handle: LoopHandle<Ctx<W>>) -> WlCtx
-    where
-        W: Send + Sync + 'static,
-    {
+    pub fn init(loop_handle: LoopHandle<Ctx>) -> WlCtx {
         let mut display = Rc::new(RefCell::new(Display::new()));
 
         let _wayland_event_source = loop_handle
@@ -59,7 +56,7 @@ impl WlCtx {
                 {
                     let display = display.clone();
                     let log = None::<()>;
-                    move |_, _, state: &mut Ctx<W>| {
+                    move |_, _, state: &mut Ctx| {
                         let mut display = display.borrow_mut();
                         match display.dispatch(std::time::Duration::from_millis(0), state) {
                             Ok(_) => Ok(()),
@@ -185,10 +182,7 @@ impl WlCtx {
         }
     }
 
-    pub fn run<W>(&mut self, ctx: &mut Ctx<W>)
-    where
-        W: Send + Sync + 'static,
-    {
+    pub fn run(&mut self, ctx: &mut Ctx) {
         //self.display.borrow_mut().flush_clients(ctx);
     }
 }

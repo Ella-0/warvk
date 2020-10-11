@@ -13,6 +13,7 @@ vulkano-shaders = "0.19"
 vulkano-win = "0.19"
 calloop = "0.6.4"
 winit = "0.22"
+ash = "0.31.0"
 #slog = { version = "2.1.1" }
 #slog-term = "2.3"
 #slog-async = "2.2"
