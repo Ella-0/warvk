@@ -75,6 +75,7 @@ where
             .display
             .borrow_mut()
             .flush_clients(&mut ctx);
+
         let _ = event_loop.dispatch(Some(Duration::from_millis(16)), &mut ctx);
 
         //wl_ctx.borrow_mut().run(&mut ctx);

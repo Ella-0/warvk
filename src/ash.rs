@@ -157,12 +157,43 @@ impl AshCtx {
 
 		let display = displays.iter().next().expect("No displays found");
 
+		let modes = unsafe {
+			display_loader.get_display_mode_properties(physical_device, display.display)
+				.expect("Failed to get display modes")
+		};
+
+		for mode in &modes {
+			println!("{}", mode.parameters.refresh_rate);
+		}
+
+		let mode = modes.iter().next().expect("No mode found");
+
+		let display_planes = unsafe {
+			display_loader.get_physical_device_display_plane_properties(physical_device).expect("Failed to get display planes")
+		};
+
+		let display_plane = display_planes.iter().next().expect("No plane found");
+
+		let surface = {
+			let create_info = vk::DisplaySurfaceCreateInfoKHR::builder()
+				.display_mode(mode.display_mode)
+				.plane_index(display_plane.current_stack_index)
+				.transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
+				.alpha_mode(vk::DisplayPlaneAlphaFlagsKHR::GLOBAL)
+				.build();
+
+			unsafe {
+				display_loader.create_display_plane_surface(&create_info, None)
+			}
+		};
+
         AshCtx {
             instance,
             debug_utils_loader,
             debug_call_back,
         }
     }
+
 }
 
 impl Drop for AshCtx {
@@ -170,12 +201,13 @@ impl Drop for AshCtx {
         unsafe {
             //self.debug_utils_loader
             //    .destroy_debug_utils_messenger(self.debug_call_back, None);
-            //self.instance.destroy_instance(None);
+            self.instance.destroy_instance(None);
         }
     }
 }
 
 impl RenderCtx for AshCtx {
+
     fn render_windows(
         &mut self,
         token: CompositorToken<Roles>,
