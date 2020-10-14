@@ -1,11 +1,10 @@
 extern crate shaderc;
 
-use std::io::Write;
 use std::env;
+use std::io::Write;
 use std::path::PathBuf;
 fn main() {
-
-let vert_source = r#"
+    let vert_source = r#"
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
@@ -20,7 +19,7 @@ void main() {
 }
 "#;
 
-let frag_source = r#"
+    let frag_source = r#"
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
@@ -34,20 +33,31 @@ void main() {
 
 "#;
 
+    let mut compiler = shaderc::Compiler::new().unwrap();
+    let vert_artifact = compiler
+        .compile_into_spirv(
+            vert_source,
+            shaderc::ShaderKind::Vertex,
+            "shader.glsl",
+            "main",
+            None,
+        )
+        .unwrap();
 
-	let mut compiler = shaderc::Compiler::new().unwrap();
-    let vert_artifact = compiler.compile_into_spirv(
-        vert_source, shaderc::ShaderKind::Vertex,
-        "shader.glsl", "main", None).unwrap();
-
-    let frag_artifact = compiler.compile_into_spirv(
-        frag_source, shaderc::ShaderKind::Fragment,
-        "shader.glsl", "main", None).unwrap();
-	let vert_bytes = vert_artifact.as_binary_u8();
-	let frag_bytes = frag_artifact.as_binary_u8();
+    let frag_artifact = compiler
+        .compile_into_spirv(
+            frag_source,
+            shaderc::ShaderKind::Fragment,
+            "shader.glsl",
+            "main",
+            None,
+        )
+        .unwrap();
+    let vert_bytes = vert_artifact.as_binary_u8();
+    let frag_bytes = frag_artifact.as_binary_u8();
     let vert_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("vert.spv");
     let frag_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("frag.spv");
-	let mut vert_file = std::fs::File::create(vert_path).expect("create failed");
-	let mut frag_file = std::fs::File::create(frag_path).expect("create failed");
-	vert_file.write_all(vert_bytes).expect("write failed");
+    let mut vert_file = std::fs::File::create(vert_path).expect("create failed");
+    let mut frag_file = std::fs::File::create(frag_path).expect("create failed");
+    vert_file.write_all(vert_bytes).expect("write failed");
 }
