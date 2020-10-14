@@ -114,78 +114,236 @@ impl AshCtx {
             }
         };
 
-		let physical_devices = unsafe {
-    		instance
-    			.enumerate_physical_devices()
-    			.expect("Error enumerating physical devices")
-		};
-		let display_loader = khr::Display::new(&entry, &instance);
-		let surface_loader = khr::Surface::new(&entry, &instance);
+        let physical_devices = unsafe {
+            instance
+                .enumerate_physical_devices()
+                .expect("Error enumerating physical devices")
+        };
+        let display_loader = khr::Display::new(&entry, &instance);
+        let surface_loader = khr::Surface::new(&entry, &instance);
 
-		let (physical_device, queue_family_index) = unsafe {
-    		physical_devices.iter()
-    			.map(|physical_device| {
-    				instance.get_physical_device_queue_family_properties(*physical_device)
-    					.iter()
-    					.enumerate()
-    					.filter_map(|(index, ref info)| {
-    						if info.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-    							Some((*physical_device, index))
-    						} else {
-    							None
-    						}
-    					})
-    					.next()
-    			})
-    			.filter_map(|v| v)
-    			.next()
-    			.expect("Could not find suitable device.")
-		};
+        let (physical_device, queue_family_index) = unsafe {
+            physical_devices
+                .iter()
+                .map(|physical_device| {
+                    instance
+                        .get_physical_device_queue_family_properties(*physical_device)
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, ref info)| {
+                            if info.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                                Some((*physical_device, index))
+                            } else {
+                                None
+                            }
+                        })
+                        .next()
+                })
+                .filter_map(|v| v)
+                .next()
+                .expect("Could not find suitable device.")
+        };
 
-		let displays = unsafe {
-			display_loader.get_physical_device_display_properties(
-				physical_device
-			)
-			.expect("Failed to enumerate displays")
-		};
+        let displays = unsafe {
+            display_loader
+                .get_physical_device_display_properties(physical_device)
+                .expect("Failed to enumerate displays")
+        };
 
-		for display in &displays {
-			println!("{:#?}", unsafe {
-				CStr::from_ptr(display.display_name)
-			});
-		}
+        for display in &displays {
+            println!("{:#?}", unsafe { CStr::from_ptr(display.display_name) });
+        }
 
-		let display = displays.iter().next().expect("No displays found");
+        let display = displays.iter().next().expect("No displays found");
 
-		let modes = unsafe {
-			display_loader.get_display_mode_properties(physical_device, display.display)
-				.expect("Failed to get display modes")
-		};
+        let modes = unsafe {
+            display_loader
+                .get_display_mode_properties(physical_device, display.display)
+                .expect("Failed to get display modes")
+        };
 
-		for mode in &modes {
-			println!("{}", mode.parameters.refresh_rate);
-		}
+        for mode in &modes {
+            println!("{}", mode.parameters.refresh_rate);
+        }
 
-		let mode = modes.iter().next().expect("No mode found");
+        let mode = modes.iter().next().expect("No mode found");
 
-		let display_planes = unsafe {
-			display_loader.get_physical_device_display_plane_properties(physical_device).expect("Failed to get display planes")
-		};
+        let display_planes = unsafe {
+            display_loader
+                .get_physical_device_display_plane_properties(physical_device)
+                .expect("Failed to get display planes")
+        };
 
-		let display_plane = display_planes.iter().next().expect("No plane found");
+        let display_plane = display_planes.iter().next().expect("No plane found");
 
-		let surface = {
-			let create_info = vk::DisplaySurfaceCreateInfoKHR::builder()
-				.display_mode(mode.display_mode)
-				.plane_index(display_plane.current_stack_index)
-				.transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
-				.alpha_mode(vk::DisplayPlaneAlphaFlagsKHR::GLOBAL)
-				.build();
+        let surface = {
+            let create_info = vk::DisplaySurfaceCreateInfoKHR::builder()
+                .display_mode(mode.display_mode)
+                .plane_index(display_plane.current_stack_index)
+                .transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
+                .alpha_mode(vk::DisplayPlaneAlphaFlagsKHR::GLOBAL)
+                .build();
 
-			unsafe {
-				display_loader.create_display_plane_surface(&create_info, None)
-			}
-		};
+            unsafe { display_loader.create_display_plane_surface(&create_info, None) }
+                .expect("Failed to create surface")
+        };
+
+        let device_extension_names_raw = [khr::Swapchain::name().as_ptr()];
+
+        let features = vk::PhysicalDeviceFeatures {
+            shader_clip_distance: 1,
+            ..Default::default()
+        };
+
+        let priorities = [1.0];
+
+        let queue_info = [vk::DeviceQueueCreateInfo::builder()
+            .queue_family_index(queue_family_index as u32)
+            .queue_priorities(&priorities)
+            .build()];
+
+        let device_create_info = vk::DeviceCreateInfo::builder()
+            .queue_create_infos(&queue_info)
+            .enabled_extension_names(&device_extension_names_raw)
+            .enabled_features(&features);
+
+        let device = unsafe {
+            instance
+                .create_device(physical_device, &device_create_info, None)
+                .unwrap()
+        };
+
+        let present_queue = unsafe { device.get_device_queue(queue_family_index as u32, 0) };
+
+        let surface_formats =
+            unsafe { surface_loader.get_physical_device_surface_formats(physical_device, surface) }
+                .expect("Failed to get surface formats");
+
+        let surface_format = surface_formats
+            .iter()
+            .map(|sfmt| match sfmt.format {
+                vk::Format::UNDEFINED => vk::SurfaceFormatKHR {
+                    format: vk::Format::B8G8R8_UNORM,
+                    color_space: sfmt.color_space,
+                },
+                _ => *sfmt,
+            })
+            .next()
+            .expect("Unable to find suitable surface format.");
+
+        let surface_capabilities = unsafe {
+            surface_loader
+                .get_physical_device_surface_capabilities(physical_device, surface)
+                .unwrap()
+        };
+
+        let mut desired_image_count = surface_capabilities.min_image_count + 1;
+        if surface_capabilities.max_image_count > 0
+            && desired_image_count > surface_capabilities.max_image_count
+        {
+            desired_image_count = surface_capabilities.max_image_count;
+        }
+
+        let surface_resolution = match surface_capabilities.current_extent.width {
+            std::u32::MAX => mode.parameters.visible_region,
+            _ => surface_capabilities.current_extent,
+        };
+
+        let pre_transform = if surface_capabilities
+            .supported_transforms
+            .contains(vk::SurfaceTransformFlagsKHR::IDENTITY)
+        {
+            vk::SurfaceTransformFlagsKHR::IDENTITY
+        } else {
+            surface_capabilities.current_transform
+        };
+
+        let present_modes = unsafe {
+            surface_loader
+                .get_physical_device_surface_present_modes(physical_device, surface)
+                .unwrap()
+        };
+
+        let present_mode = present_modes
+            .iter()
+            .cloned()
+            .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
+            .unwrap_or(vk::PresentModeKHR::FIFO);
+
+        let swapchain_loader = khr::Swapchain::new(&instance, &device);
+
+        let swapchain = {
+            let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
+                .surface(surface)
+                .min_image_count(desired_image_count)
+                .image_color_space(surface_format.color_space)
+                .image_format(surface_format.format)
+                .image_extent(surface_resolution)
+                .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+                .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .pre_transform(pre_transform)
+                .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+                .present_mode(present_mode)
+                .clipped(true)
+                .image_array_layers(1);
+
+            unsafe {
+                swapchain_loader
+                    .create_swapchain(&swapchain_create_info, None)
+                    .unwrap()
+            }
+        };
+
+        let pool = {
+            let pool_create_info = vk::CommandPoolCreateInfo::builder()
+                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+                .queue_family_index(queue_family_index as u32);
+
+            unsafe { device.create_command_pool(&pool_create_info, None).unwrap() }
+        };
+        let command_buffers = {
+            let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+                .command_buffer_count(2)
+                .command_pool(pool)
+                .level(vk::CommandBufferLevel::PRIMARY);
+
+            unsafe {
+                device
+                    .allocate_command_buffers(&command_buffer_allocate_info)
+                    .unwrap()
+            }
+        };
+        let setup_command_buffer = command_buffers[0];
+        let draw_command_buffer = command_buffers[1];
+
+        let present_images = unsafe { swapchain_loader.get_swapchain_images(swapchain).unwrap() };
+
+        let present_image_views: Vec<vk::ImageView> = present_images
+            .iter()
+            .map(|&image| {
+                let create_view_info = vk::ImageViewCreateInfo::builder()
+                    .view_type(vk::ImageViewType::TYPE_2D)
+                    .format(surface_format.format)
+                    .components(vk::ComponentMapping {
+                        r: vk::ComponentSwizzle::R,
+                        g: vk::ComponentSwizzle::G,
+                        b: vk::ComponentSwizzle::B,
+                        a: vk::ComponentSwizzle::A,
+                    })
+                    .subresource_range(vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .image(image);
+                unsafe { device.create_image_view(&create_view_info, None).unwrap() }
+            })
+            .collect();
+
+        let device_memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(physical_device) };
 
         AshCtx {
             instance,
@@ -193,7 +351,6 @@ impl AshCtx {
             debug_call_back,
         }
     }
-
 }
 
 impl Drop for AshCtx {
@@ -207,7 +364,6 @@ impl Drop for AshCtx {
 }
 
 impl RenderCtx for AshCtx {
-
     fn render_windows(
         &mut self,
         token: CompositorToken<Roles>,
