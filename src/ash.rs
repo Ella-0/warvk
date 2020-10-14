@@ -54,6 +54,22 @@ unsafe extern "system" fn vulkan_debug_callback(
     vk::FALSE
 }
 
+#[derive(Clone, Debug, Copy)]
+struct Vertex {
+    pos: [f32; 4],
+    color: [f32; 4],
+}
+
+macro_rules! offset_of {
+    ($base:path, $field:ident) => {{
+        #[allow(unused_unsafe)]
+        unsafe {
+            let b: $base = std::mem::zeroed();
+            (&b.$field as *const _ as isize) - (&b as *const _ as isize)
+        }
+    }};
+}
+
 impl AshCtx {
     pub fn init() -> AshCtx {
         let entry = Entry::new().unwrap();
@@ -408,6 +424,34 @@ impl AshCtx {
                 .name(unsafe { CStr::from_ptr("main".as_ptr() as *const i8) });
 
             let shader_create_infos = [vert_stage_create_info, frag_stage_create_info];
+
+            let vertex_input_binding_descriptions = [vk::VertexInputBindingDescription {
+                binding: 0,
+                stride: std::mem::size_of::<Vertex>() as u32,
+                input_rate: vk::VertexInputRate::VERTEX,
+            }];
+
+            let vertex_input_attribute_descriptions = [
+                vk::VertexInputAttributeDescription {
+                    location: 0,
+                    binding: 0,
+                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    offset: offset_of!(Vertex, pos) as u32,
+                },
+                vk::VertexInputAttributeDescription {
+                    location: 1,
+                    binding: 0,
+                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    offset: offset_of!(Vertex, color) as u32,
+                },
+            ];
+
+            let vertex_input_create_info = {
+                vk::PipelineVertexInputStateCreateInfo::builder()
+                    .vertex_binding_descriptions(&vertex_input_binding_descriptions)
+                    .vertex_attribute_descriptions(&vertex_input_attribute_descriptions)
+                    .build();
+            };
         };
 
         AshCtx {
