@@ -345,6 +345,19 @@ impl AshCtx {
         let device_memory_properties =
             unsafe { instance.get_physical_device_memory_properties(physical_device) };
 
+
+		let pipeline_layout = {
+			let create_info = vk::PipelineLayoutCreateInfo::default();
+			
+			unsafe {
+				device.create_pipeline_layout(&create_info, None)
+			}
+		};
+
+		let pipeline = {
+			let vert = include_bytes!(concat!(env!("OUT_DIR"), "/vert.spv"));
+		};
+
         AshCtx {
             instance,
             debug_utils_loader,

@@ -1103,6 +1103,7 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "calloop 0.6.4",
+ "shaderc",
  "smithay",
  "vk-sys",
  "vulkano",

@@ -18,6 +18,9 @@ ash = "0.31.0"
 #slog-term = "2.3"
 #slog-async = "2.2"
 
+[build-dependencies]
+shaderc = "0.6.2"
+
 [dependencies.smithay]
 git = "https://github.com/smithay/smithay"
 branch = "vberger/fix-frames"
