@@ -364,7 +364,7 @@ impl AshCtx {
         let pipeline_layout = {
             let create_info = vk::PipelineLayoutCreateInfo::default();
 
-            unsafe { device.create_pipeline_layout(&create_info, None) }
+            unsafe { device.create_pipeline_layout(&create_info, None) }.unwrap()
         };
 
         let pipeline = {
@@ -416,12 +416,14 @@ impl AshCtx {
             let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::VERTEX)
                 .module(vert_module)
-                .name(unsafe { CStr::from_ptr("main".as_ptr() as *const i8) });
+                .name(unsafe { CStr::from_ptr("main".as_ptr() as *const i8) })
+                .build();
 
             let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::FRAGMENT)
                 .module(frag_module)
-                .name(unsafe { CStr::from_ptr("main".as_ptr() as *const i8) });
+                .name(unsafe { CStr::from_ptr("main".as_ptr() as *const i8) })
+                .build();
 
             let shader_create_infos = [vert_stage_create_info, frag_stage_create_info];
 
@@ -450,8 +452,12 @@ impl AshCtx {
                 vk::PipelineVertexInputStateCreateInfo::builder()
                     .vertex_binding_descriptions(&vertex_input_binding_descriptions)
                     .vertex_attribute_descriptions(&vertex_input_attribute_descriptions)
-                    .build();
+                    .build()
             };
+
+            let vertex_input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+                .topology(vk::PrimitiveTopology::Triangles)
+                .primitive_restart_enable(false);
 
             let viewport = vk::Viewport::builder()
                 .x(0.0f32)
@@ -465,6 +471,11 @@ impl AshCtx {
             let scissor = vk::Rect2D::builder()
                 .offset(vk::Offset2D { x: 0, y: 0 })
                 .extent(surface_resolution)
+                .build();
+
+            let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+                .viewports(&[viewport])
+                .scissors(&[scissor])
                 .build();
 
             let rasterizer_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
@@ -487,6 +498,40 @@ impl AshCtx {
                 .alpha_to_coverage_enable(false)
                 .alpha_to_one_enable(false)
                 .build();
+
+            let colour_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+                .color_write_mask(
+                    vk::ColorComponentFlags::R
+                        | vk::ColorComponentFlags::G
+                        | vk::ColorComponentFlags::B
+                        | vk::ColorComponentFlags::A,
+                )
+                .blend_enable(true)
+                .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+                .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                .color_blend_op(vk::BlendOp::ADD)
+                .src_alpha_blend_factor(vk::BlendFactor::ONE)
+                .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+                .alpha_blend_op(vk::BlendOp::ADD)
+                .build();
+
+            let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
+                .logic_op_enable(false)
+                .logic_op(vk::LogicOp::COPY)
+                .attachments(&[colour_blend_attachment])
+                .build();
+
+            let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+                .stages(&shader_create_infos)
+                .vertex_input_state(&vertex_input_create_info)
+                .input_assembly_state(&vertex_input_assembly_state)
+                .viewport_state(&viewport_state)
+                .rasterization_state(&rasterizer_create_info)
+                .multisample_state(&multi_sampler_create_info)
+                .color_blend_state(&color_blending)
+                .layout(pipeline_layout)
+                //.render_pass(&render_pass)
+                .subpass(0);
         };
 
         AshCtx {
