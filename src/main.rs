@@ -108,7 +108,7 @@ fn main() {
     let prefer_discrete = prefer_discrete;
     let winit = winit;
 
-    ash::AshCtx::init();
+    //ash::AshCtx::init();
 
     if winit {
         warvk(VkCtx::<winit::window::Window>::init(prefer_discrete));
