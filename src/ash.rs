@@ -452,6 +452,41 @@ impl AshCtx {
                     .vertex_attribute_descriptions(&vertex_input_attribute_descriptions)
                     .build();
             };
+
+            let viewport = vk::Viewport::builder()
+                .x(0.0f32)
+                .y(0.0f32)
+                .width(surface_resolution.width as f32)
+                .height(surface_resolution.height as f32)
+                .min_depth(0.0f32)
+                .max_depth(1.0f32)
+                .build();
+
+            let scissor = vk::Rect2D::builder()
+                .offset(vk::Offset2D { x: 0, y: 0 })
+                .extent(surface_resolution)
+                .build();
+
+            let rasterizer_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
+                .depth_clamp_enable(false)
+                .rasterizer_discard_enable(false)
+                .polygon_mode(vk::PolygonMode::FILL)
+                .line_width(1.0f32)
+                .cull_mode(vk::CullModeFlags::BACK)
+                .front_face(vk::FrontFace::CLOCKWISE)
+                .depth_bias_enable(false)
+                .depth_bias_constant_factor(0.0f32)
+                .depth_bias_clamp(0.0f32)
+                .depth_bias_slope_factor(0.0f32)
+                .build();
+
+            let multi_sampler_create_info = vk::PipelineMultisampleStateCreateInfo::builder()
+                .sample_shading_enable(false)
+                .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+                .min_sample_shading(1.0f32)
+                .alpha_to_coverage_enable(false)
+                .alpha_to_one_enable(false)
+                .build();
         };
 
         AshCtx {
