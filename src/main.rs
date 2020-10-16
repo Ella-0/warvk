@@ -21,7 +21,7 @@ use calloop::EventLoop;
 use calloop::LoopHandle;
 use smithay::reexports::wayland_server::Display;
 
-fn warvk<W>(vk_ctx: VkCtx<W>)
+fn warvk<W>(vk_ctx: Box<dyn ctx::RenderCtx>)
 where
     W: Send + Sync + 'static,
 {
@@ -33,7 +33,7 @@ where
 
     let mut should_close = false;
 
-    let vk_ctx: Box<dyn crate::ctx::RenderCtx> = Box::new(vk_ctx);
+    //let vk_ctx: Box<dyn crate::ctx::RenderCtx> = Box::new(vk_ctx);
 
     let vk_ctx = Rc::new(RefCell::new(vk_ctx));
     let wl_ctx = Rc::new(RefCell::new(WlCtx::init(event_loop.handle())));
@@ -108,11 +108,13 @@ fn main() {
     let prefer_discrete = prefer_discrete;
     let winit = winit;
 
-    //ash::AshCtx::init();
+    //let ash_ctx = ash::AshCtx::init();
 
-    if winit {
-        warvk(VkCtx::<winit::window::Window>::init(prefer_discrete));
+    warvk::<()>(if winit {
+        Box::new(VkCtx::<winit::window::Window>::init(prefer_discrete))
     } else {
-        warvk(VkCtx::<()>::init(prefer_discrete));
-    }
+        Box::new(VkCtx::<()>::init(prefer_discrete))
+    });
+
+    //warvk::<()>(Box::new(ash_ctx));
 }

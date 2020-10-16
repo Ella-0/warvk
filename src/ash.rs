@@ -19,6 +19,16 @@ pub struct AshCtx {
     instance: Instance,
     debug_utils_loader: ext::DebugUtils,
     debug_call_back: vk::DebugUtilsMessengerEXT,
+    device: ash::Device,
+    swapchain_loader: khr::Swapchain,
+    swapchain: vk::SwapchainKHR,
+    present_queue: vk::Queue,
+    command_buffers: Vec<vk::CommandBuffer>,
+    image_available: Vec<vk::Semaphore>,
+    render_finished: Vec<vk::Semaphore>,
+    in_flight_fence: Vec<vk::Fence>,
+    image_in_flight: Vec<vk::Fence>,
+    current_frame: usize,
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -660,6 +670,16 @@ impl AshCtx {
             instance,
             debug_utils_loader,
             debug_call_back,
+            device,
+            swapchain_loader,
+            swapchain,
+            present_queue,
+            command_buffers,
+            image_available,
+            render_finished,
+            in_flight_fence,
+            image_in_flight,
+            current_frame: 0,
         }
     }
 }
@@ -682,5 +702,57 @@ impl RenderCtx for AshCtx {
             RefCell<WindowMap<Roles, for<'r> fn(&'r SurfaceAttributes) -> Option<(i32, i32)>>>,
         >,
     ) {
+        unsafe {
+            self.device
+                .wait_for_fences(&[self.in_flight_fence[self.current_frame]], true, u64::MAX)
+                .unwrap();
+
+            let image_index = self
+                .swapchain_loader
+                .acquire_next_image(
+                    self.swapchain,
+                    u64::MAX,
+                    self.image_available[self.current_frame],
+                    vk::Fence::null(),
+                )
+                .unwrap()
+                .0 as usize;
+
+            if self.image_in_flight[image_index] != vk::Fence::null() {
+                self.device
+                    .wait_for_fences(&[self.image_in_flight[image_index]], true, u64::MAX)
+                    .unwrap();
+            }
+
+            let submit_info = vk::SubmitInfo::builder()
+                .wait_semaphores(&[self.image_available[self.current_frame]])
+                .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+                .command_buffers(&[self.command_buffers[image_index]])
+                .signal_semaphores(&[self.render_finished[self.current_frame]])
+                .build();
+
+            self.device
+                .reset_fences(&[self.in_flight_fence[self.current_frame]])
+                .unwrap();
+            self.device
+                .queue_submit(
+                    self.present_queue,
+                    &[submit_info],
+                    self.in_flight_fence[self.current_frame],
+                )
+                .unwrap();
+
+            let present_info = vk::PresentInfoKHR::builder()
+                .wait_semaphores(&[self.render_finished[self.current_frame]])
+                .swapchains(&[self.swapchain])
+                .image_indices(&[image_index as u32])
+                .build();
+
+            self.swapchain_loader
+                .queue_present(self.present_queue, &present_info)
+                .unwrap();
+        };
+
+        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 }
