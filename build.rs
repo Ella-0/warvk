@@ -60,4 +60,5 @@ void main() {
     let mut vert_file = std::fs::File::create(vert_path).expect("create failed");
     let mut frag_file = std::fs::File::create(frag_path).expect("create failed");
     vert_file.write_all(vert_bytes).expect("write failed");
+    frag_file.write_all(frag_bytes).expect("write failed");
 }

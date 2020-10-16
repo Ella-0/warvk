@@ -422,27 +422,8 @@ impl AshCtx {
             let vert = include_bytes!(concat!(env!("OUT_DIR"), "/vert.spv"));
             let frag = include_bytes!(concat!(env!("OUT_DIR"), "/frag.spv"));
 
-            let mut vert_source = Vec::<u32>::new();
-
-            for i in 0..(vert.len() / 4) {
-                vert_source.push(u32::from_ne_bytes([
-                    vert[i],
-                    vert[i + 1],
-                    vert[i + 2],
-                    vert[i + 3],
-                ]));
-            }
-
-            let mut frag_source = Vec::<u32>::new();
-
-            for i in 0..(frag.len() / 4) {
-                frag_source.push(u32::from_ne_bytes([
-                    frag[i],
-                    frag[i + 1],
-                    frag[i + 2],
-                    frag[i + 3],
-                ]));
-            }
+            let vert_source = ash::util::read_spv(&mut std::io::Cursor::new(&vert[..])).unwrap();
+            let frag_source = ash::util::read_spv(&mut std::io::Cursor::new(&frag[..])).unwrap();
 
             let (vert_module, frag_module) = {
                 let vert_create_info = vk::ShaderModuleCreateInfo::builder()
@@ -464,16 +445,18 @@ impl AshCtx {
                 }
             };
 
+            let shader_entry_name = CString::new("main").unwrap();
+
             let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::VERTEX)
                 .module(vert_module)
-                .name(unsafe { CStr::from_ptr("main".as_ptr() as *const i8) })
+                .name(&shader_entry_name)
                 .build();
 
             let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::FRAGMENT)
                 .module(frag_module)
-                .name(unsafe { CStr::from_ptr("main".as_ptr() as *const i8) })
+                .name(&shader_entry_name)
                 .build();
 
             let shader_create_infos = [vert_stage_create_info, frag_stage_create_info];
