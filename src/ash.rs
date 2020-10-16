@@ -70,6 +70,44 @@ macro_rules! offset_of {
     }};
 }
 
+fn create_render_pass(device: ash::Device, swapchain_image_format: vk::Format) -> vk::RenderPass {
+    let colour_attachment = vk::AttachmentDescription::builder()
+        .format(swapchain_image_format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+        .build();
+
+    let colour_attachment_ref = vk::AttachmentReference::builder()
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+        .build();
+
+    let sub_pass = vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&[colour_attachment_ref])
+        .build();
+
+    let dependency = vk::SubpassDependency::builder()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+        .build();
+
+    let render_pass_info = vk::RenderPassCreateInfo::builder()
+        .attachments(&[colour_attachment])
+        .subpasses(&[sub_pass])
+        .dependencies(&[dependency])
+        .build();
+
+    unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap()
+}
+
 impl AshCtx {
     pub fn init() -> AshCtx {
         let entry = Entry::new().unwrap();
@@ -367,6 +405,8 @@ impl AshCtx {
             unsafe { device.create_pipeline_layout(&create_info, None) }.unwrap()
         };
 
+        let render_pass = create_render_pass(device, surface_format.format);
+
         let pipeline = {
             let vert = include_bytes!(concat!(env!("OUT_DIR"), "/vert.spv"));
             let frag = include_bytes!(concat!(env!("OUT_DIR"), "/frag.spv"));
@@ -530,8 +570,14 @@ impl AshCtx {
                 .multisample_state(&multi_sampler_create_info)
                 .color_blend_state(&color_blending)
                 .layout(pipeline_layout)
-                //.render_pass(&render_pass)
-                .subpass(0);
+                .render_pass(render_pass)
+                .subpass(0)
+                .build();
+
+            unsafe {
+                device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
+            }
+            .unwrap()
         };
 
         AshCtx {
