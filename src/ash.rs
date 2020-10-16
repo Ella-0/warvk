@@ -70,7 +70,7 @@ macro_rules! offset_of {
     }};
 }
 
-fn create_render_pass(device: ash::Device, swapchain_image_format: vk::Format) -> vk::RenderPass {
+fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) -> vk::RenderPass {
     let colour_attachment = vk::AttachmentDescription::builder()
         .format(swapchain_image_format)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -405,7 +405,7 @@ impl AshCtx {
             unsafe { device.create_pipeline_layout(&create_info, None) }.unwrap()
         };
 
-        let render_pass = create_render_pass(device, surface_format.format);
+        let render_pass = create_render_pass(&device, surface_format.format);
 
         let pipeline = {
             let vert = include_bytes!(concat!(env!("OUT_DIR"), "/vert.spv"));
@@ -496,7 +496,7 @@ impl AshCtx {
             };
 
             let vertex_input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
-                .topology(vk::PrimitiveTopology::Triangles)
+                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
                 .primitive_restart_enable(false);
 
             let viewport = vk::Viewport::builder()
