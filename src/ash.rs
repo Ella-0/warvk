@@ -355,20 +355,6 @@ impl AshCtx {
 
             unsafe { device.create_command_pool(&pool_create_info, None).unwrap() }
         };
-        let command_buffers = {
-            let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-                .command_buffer_count(2)
-                .command_pool(pool)
-                .level(vk::CommandBufferLevel::PRIMARY);
-
-            unsafe {
-                device
-                    .allocate_command_buffers(&command_buffer_allocate_info)
-                    .unwrap()
-            }
-        };
-        let setup_command_buffer = command_buffers[0];
-        let draw_command_buffer = command_buffers[1];
 
         let present_images = unsafe { swapchain_loader.get_swapchain_images(swapchain).unwrap() };
 
@@ -395,6 +381,19 @@ impl AshCtx {
                 unsafe { device.create_image_view(&create_view_info, None).unwrap() }
             })
             .collect();
+
+        let command_buffers = {
+            let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+                .command_buffer_count(present_image_views.len() as u32)
+                .command_pool(pool)
+                .level(vk::CommandBufferLevel::PRIMARY);
+
+            unsafe {
+                device
+                    .allocate_command_buffers(&command_buffer_allocate_info)
+                    .unwrap()
+            }
+        };
 
         let device_memory_properties =
             unsafe { instance.get_physical_device_memory_properties(physical_device) };
@@ -577,8 +576,61 @@ impl AshCtx {
             unsafe {
                 device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
             }
-            .unwrap()
+            .unwrap()[0]
         };
+
+        let framebuffers = {
+            let mut ret = Vec::<vk::Framebuffer>::new();
+
+            for image_view in present_image_views {
+                let frame_buffer_info = vk::FramebufferCreateInfo::builder()
+                    .render_pass(render_pass)
+                    .attachments(&[image_view])
+                    .width(surface_resolution.width)
+                    .height(surface_resolution.height)
+                    .layers(1)
+                    .build();
+                ret.push(unsafe { device.create_framebuffer(&frame_buffer_info, None) }.unwrap());
+            }
+            ret
+        };
+
+        for (command_buffer, framebuffer) in command_buffers.iter().zip(framebuffers) {
+            let begin_info = vk::CommandBufferBeginInfo::builder().build();
+
+            unsafe { device.begin_command_buffer(*command_buffer, &begin_info) }.unwrap();
+
+            let clear_colour = vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0f32, 1.0f32, 0.0f32, 0.0f32],
+                },
+            };
+
+            let render_pass_info = vk::RenderPassBeginInfo::builder()
+                .render_pass(render_pass)
+                .framebuffer(framebuffer)
+                .render_area(vk::Rect2D::builder().extent(surface_resolution).build())
+                .clear_values(&[clear_colour])
+                .build();
+
+            unsafe {
+                device.cmd_begin_render_pass(
+                    *command_buffer,
+                    &render_pass_info,
+                    vk::SubpassContents::INLINE,
+                );
+                device.cmd_bind_pipeline(
+                    *command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    pipeline,
+                );
+                //TODO: device.cmd_bind_vertex_buffers(*command_buffer, 0, &[vertex_buffer])
+                device.cmd_draw(*command_buffer, 3, 1, 0, 0);
+                device.cmd_end_render_pass(*command_buffer);
+                device.end_command_buffer(*command_buffer)
+            }
+            .unwrap()
+        }
 
         AshCtx {
             instance,
