@@ -108,6 +108,8 @@ fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) 
     unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap()
 }
 
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
 impl AshCtx {
     pub fn init() -> AshCtx {
         let entry = Entry::new().unwrap();
@@ -630,6 +632,28 @@ impl AshCtx {
                 device.end_command_buffer(*command_buffer)
             }
             .unwrap()
+        }
+
+        let mut image_available = Vec::<vk::Semaphore>::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut render_finished = Vec::<vk::Semaphore>::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut in_flight_fence = Vec::<vk::Fence>::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut image_in_flight = Vec::<vk::Fence>::with_capacity(present_images.len());
+        for _ in 0..present_images.len() {
+            image_in_flight.push(vk::Fence::null())
+        }
+
+        let semaphore_info = vk::SemaphoreCreateInfo::builder().build();
+
+        let fence_info = vk::FenceCreateInfo::builder()
+            .flags(vk::FenceCreateFlags::SIGNALED)
+            .build();
+
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
+            unsafe {
+                image_available.push(device.create_semaphore(&semaphore_info, None).unwrap());
+                render_finished.push(device.create_semaphore(&semaphore_info, None).unwrap());
+                in_flight_fence.push(device.create_fence(&fence_info, None).unwrap());
+            }
         }
 
         AshCtx {
