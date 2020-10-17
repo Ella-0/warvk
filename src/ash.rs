@@ -81,7 +81,7 @@ macro_rules! offset_of {
 }
 
 fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) -> vk::RenderPass {
-    let colour_attachment = vk::AttachmentDescription::builder()
+    let colour_attachment = [vk::AttachmentDescription::builder()
         .format(swapchain_image_format)
         .samples(vk::SampleCountFlags::TYPE_1)
         .load_op(vk::AttachmentLoadOp::CLEAR)
@@ -90,30 +90,33 @@ fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) 
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-        .build();
+        .build()];
 
-    let colour_attachment_ref = vk::AttachmentReference::builder()
+    let colour_attachment_ref = [vk::AttachmentReference::builder()
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .build();
+        .attachment(0)
+        .build()];
 
-    let sub_pass = vk::SubpassDescription::builder()
+    let sub_pass = [vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&[colour_attachment_ref])
-        .build();
+        .color_attachments(&colour_attachment_ref)
+        .build()];
 
-    let dependency = vk::SubpassDependency::builder()
+    let dependency = [vk::SubpassDependency::builder()
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .dst_subpass(0)
         .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
         .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
         .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
-        .build();
+        .build()];
 
     let render_pass_info = vk::RenderPassCreateInfo::builder()
-        .attachments(&[colour_attachment])
-        .subpasses(&[sub_pass])
-        .dependencies(&[dependency])
+        .attachments(&colour_attachment)
+        .subpasses(&sub_pass)
+        .dependencies(&dependency)
         .build();
+
+    println!("{:?}", sub_pass);
 
     unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap()
 }
@@ -253,6 +256,15 @@ impl AshCtx {
             unsafe { display_loader.create_display_plane_surface(&create_info, None) }
                 .expect("Failed to create surface")
         };
+
+        assert!(unsafe {
+            surface_loader.get_physical_device_surface_support(
+                physical_device,
+                queue_family_index as u32,
+                surface,
+            )
+        }
+        .unwrap_or(false));
 
         let device_extension_names_raw = [khr::Swapchain::name().as_ptr()];
 
@@ -595,17 +607,17 @@ impl AshCtx {
 
             unsafe { device.begin_command_buffer(*command_buffer, &begin_info) }.unwrap();
 
-            let clear_colour = vk::ClearValue {
+            let clear_colour = [vk::ClearValue {
                 color: vk::ClearColorValue {
                     float32: [0.0f32, 1.0f32, 0.0f32, 0.0f32],
                 },
-            };
+            }];
 
             let render_pass_info = vk::RenderPassBeginInfo::builder()
                 .render_pass(render_pass)
                 .framebuffer(framebuffer)
                 .render_area(vk::Rect2D::builder().extent(surface_resolution).build())
-                .clear_values(&[clear_colour])
+                .clear_values(&clear_colour)
                 .build();
 
             unsafe {
@@ -620,7 +632,7 @@ impl AshCtx {
                     pipeline,
                 );
                 //TODO: device.cmd_bind_vertex_buffers(*command_buffer, 0, &[vertex_buffer])
-                device.cmd_draw(*command_buffer, 3, 1, 0, 0);
+                //device.cmd_draw(*command_buffer, 3, 1, 0, 0);
                 device.cmd_end_render_pass(*command_buffer);
                 device.end_command_buffer(*command_buffer)
             }
@@ -672,7 +684,7 @@ impl Drop for AshCtx {
         unsafe {
             //self.debug_utils_loader
             //    .destroy_debug_utils_messenger(self.debug_call_back, None);
-            self.instance.destroy_instance(None);
+            //self.instance.destroy_instance(None);
         }
     }
 }
