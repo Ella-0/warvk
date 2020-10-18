@@ -218,7 +218,12 @@ pub fn create_swapchain<W>(
         format,
         dimensions,
         1,
-        ImageUsage::color_attachment(),
+        /*ImageUsage::color_attachment()*/
+        ImageUsage {
+            color_attachment: true,
+            transfer_destination: true,
+            ..ImageUsage::none()
+        },
         &queue,
         SurfaceTransform::Identity,
         alpha,
@@ -640,6 +645,41 @@ where
             (image, finished.boxed())
         })
         .expect("Failed")
+    }
+
+    // TODO, try alternative of blitting images with no shaders involved
+    pub fn _load_shm_buffer_to_buffer(
+        &mut self,
+        buffer: &wl_buffer::WlBuffer,
+    ) -> Arc<CpuAccessibleBuffer<[u8]>> {
+        shm::with_buffer_contents(buffer, |pool, data| {
+            let _pixelsize = 4;
+
+            let offset = data.offset as usize;
+            let width = data.width as usize;
+            let height = data.height as usize;
+            let stride = data.stride as usize;
+
+            let slice = &pool[offset..pool.len()];
+
+            unsafe {
+                let uninitialized = CpuAccessibleBuffer::<[u8]>::uninitialized_array(
+                    self.device.clone(),
+                    stride * height,
+                    BufferUsage::all(),
+                    false,
+                )
+                .unwrap();
+
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+                    mapping.copy_from_slice(&slice);
+                }
+
+                uninitialized
+            }
+        })
+        .unwrap()
     }
 }
 

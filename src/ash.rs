@@ -80,6 +80,81 @@ macro_rules! offset_of {
     }};
 }
 
+fn get_memory_type(
+    instance: &ash::Instance,
+    physical_device: vk::PhysicalDevice,
+    type_filter: u32,
+    properties: vk::MemoryPropertyFlags,
+) -> u32 {
+    let mem_properties = unsafe { instance.get_physical_device_memory_properties(physical_device) };
+    for i in 0..mem_properties.memory_type_count {
+        if (type_filter & (1 << i)) != 0 {
+            return i;
+        }
+    }
+    panic!("Failed to get suitible memory type");
+}
+
+fn create_vertex_buffer(
+    instance: &ash::Instance,
+    device: &ash::Device,
+    physical_device: vk::PhysicalDevice,
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let create_info = vk::BufferCreateInfo::builder()
+        .size(std::mem::size_of::<Vertex>() as u64)
+        .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+        .build();
+
+    let buffer = unsafe { device.create_buffer(&create_info, None) }.unwrap();
+
+    let mem_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
+
+    let alloc_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(mem_requirements.size)
+        .memory_type_index(get_memory_type(
+            instance,
+            physical_device,
+            mem_requirements.memory_type_bits,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        ));
+
+    let mem = unsafe { device.allocate_memory(&alloc_info, None).unwrap() };
+
+    unsafe { device.bind_buffer_memory(buffer, mem, 0) }.unwrap();
+
+    let vertices = [
+        Vertex {
+            pos: [0.0, -0.5, 0.0, 0.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+        },
+        Vertex {
+            pos: [0.5, 0.5, 0.0, 0.0],
+            color: [0.0, 1.0, 0.0, 1.0],
+        },
+        Vertex {
+            pos: [-0.5, 0.5, 0.0, 0.0],
+            color: [0.0, 0.0, 1.0, 1.0],
+        },
+    ];
+
+    unsafe {
+        let data = device
+            .map_memory(mem, 0, create_info.size, vk::MemoryMapFlags::empty())
+            .unwrap();
+        {
+            std::ptr::copy_nonoverlapping(
+                vertices.as_ptr(),
+                data as *mut Vertex,
+                vertices.len() * std::mem::size_of::<Vertex>(),
+            );
+        }
+        device.unmap_memory(mem);
+    }
+
+    (buffer, mem)
+}
+
 fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) -> vk::RenderPass {
     let colour_attachment = [vk::AttachmentDescription::builder()
         .format(swapchain_image_format)
@@ -115,8 +190,6 @@ fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) 
         .subpasses(&sub_pass)
         .dependencies(&dependency)
         .build();
-
-    println!("{:?}", sub_pass);
 
     unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap()
 }
@@ -357,7 +430,9 @@ impl AshCtx {
                 .image_color_space(surface_format.color_space)
                 .image_format(surface_format.format)
                 .image_extent(surface_resolution)
-                .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+                .image_usage(
+                    vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+                )
                 .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .pre_transform(pre_transform)
                 .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
@@ -505,23 +580,23 @@ impl AshCtx {
                 .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
                 .primitive_restart_enable(false);
 
-            let viewport = vk::Viewport::builder()
+            let viewport = [vk::Viewport::builder()
                 .x(0.0f32)
                 .y(0.0f32)
                 .width(surface_resolution.width as f32)
                 .height(surface_resolution.height as f32)
                 .min_depth(0.0f32)
                 .max_depth(1.0f32)
-                .build();
+                .build()];
 
-            let scissor = vk::Rect2D::builder()
+            let scissor = [vk::Rect2D::builder()
                 .offset(vk::Offset2D { x: 0, y: 0 })
                 .extent(surface_resolution)
-                .build();
+                .build()];
 
             let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
-                .viewports(&[viewport])
-                .scissors(&[scissor])
+                .viewports(&viewport)
+                .scissors(&scissor)
                 .build();
 
             let rasterizer_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
@@ -545,7 +620,7 @@ impl AshCtx {
                 .alpha_to_one_enable(false)
                 .build();
 
-            let colour_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+            let colour_blend_attachment = [vk::PipelineColorBlendAttachmentState::builder()
                 .color_write_mask(
                     vk::ColorComponentFlags::R
                         | vk::ColorComponentFlags::G
@@ -559,15 +634,15 @@ impl AshCtx {
                 .src_alpha_blend_factor(vk::BlendFactor::ONE)
                 .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
                 .alpha_blend_op(vk::BlendOp::ADD)
-                .build();
+                .build()];
 
             let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
                 .logic_op_enable(false)
                 .logic_op(vk::LogicOp::COPY)
-                .attachments(&[colour_blend_attachment])
+                .attachments(&colour_blend_attachment)
                 .build();
 
-            let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+            let pipeline_info = [vk::GraphicsPipelineCreateInfo::builder()
                 .stages(&shader_create_infos)
                 .vertex_input_state(&vertex_input_create_info)
                 .input_assembly_state(&vertex_input_assembly_state)
@@ -578,10 +653,10 @@ impl AshCtx {
                 .layout(pipeline_layout)
                 .render_pass(render_pass)
                 .subpass(0)
-                .build();
+                .build()];
 
             unsafe {
-                device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
+                device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_info, None)
             }
             .unwrap()[0]
         };
@@ -590,9 +665,10 @@ impl AshCtx {
             let mut ret = Vec::<vk::Framebuffer>::new();
 
             for image_view in present_image_views {
+                let image_view = [image_view];
                 let frame_buffer_info = vk::FramebufferCreateInfo::builder()
                     .render_pass(render_pass)
-                    .attachments(&[image_view])
+                    .attachments(&image_view)
                     .width(surface_resolution.width)
                     .height(surface_resolution.height)
                     .layers(1)
@@ -601,6 +677,8 @@ impl AshCtx {
             }
             ret
         };
+
+        let (vertex_buffer, vertex_mem) = create_vertex_buffer(&instance, &device, physical_device);
 
         for (command_buffer, framebuffer) in command_buffers.iter().zip(framebuffers) {
             let begin_info = vk::CommandBufferBeginInfo::builder().build();
@@ -631,8 +709,8 @@ impl AshCtx {
                     vk::PipelineBindPoint::GRAPHICS,
                     pipeline,
                 );
-                //TODO: device.cmd_bind_vertex_buffers(*command_buffer, 0, &[vertex_buffer])
-                //device.cmd_draw(*command_buffer, 3, 1, 0, 0);
+                device.cmd_bind_vertex_buffers(*command_buffer, 0, &[vertex_buffer], &[0]);
+                device.cmd_draw(*command_buffer, 3, 1, 0, 0);
                 device.cmd_end_render_pass(*command_buffer);
                 device.end_command_buffer(*command_buffer)
             }
