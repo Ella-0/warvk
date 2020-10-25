@@ -796,12 +796,16 @@ impl RenderCtx for AshCtx {
                     .wait_for_fences(&[self.image_in_flight[image_index]], true, u64::MAX)
                     .unwrap();
             }
+			self.image_in_flight[image_index] = self.in_flight_fence[self.current_frame];
+
+			let wait_semaphores = [self.image_available[self.current_frame]];
+			let signal_semaphores = [self.render_finished[self.current_frame]];
 
             let submit_info = vk::SubmitInfo::builder()
-                .wait_semaphores(&[self.image_available[self.current_frame]])
+                .wait_semaphores(&wait_semaphores)
                 .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
                 .command_buffers(&[self.command_buffers[image_index]])
-                .signal_semaphores(&[self.render_finished[self.current_frame]])
+                .signal_semaphores(&signal_semaphores)
                 .build();
 
             self.device
@@ -815,10 +819,13 @@ impl RenderCtx for AshCtx {
                 )
                 .unwrap();
 
+			let swapchains = [self.swapchain];
+			let indices = [image_index as u32];
+
             let present_info = vk::PresentInfoKHR::builder()
-                .wait_semaphores(&[self.render_finished[self.current_frame]])
-                .swapchains(&[self.swapchain])
-                .image_indices(&[image_index as u32])
+                .wait_semaphores(&signal_semaphores)
+                .swapchains(&swapchains)
+                .image_indices(&indices)
                 .build();
 
             self.swapchain_loader
