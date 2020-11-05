@@ -15,7 +15,10 @@ use smithay::wayland::compositor::{CompositorToken, SurfaceAttributes};
 
 use crate::{ctx::RenderCtx, shell::Roles, window_map::WindowMap};
 
-pub struct AshCtx {
+pub struct AshCtx<W>
+where
+    W: 'static,
+{
     instance: Instance,
     debug_utils_loader: ext::DebugUtils,
     debug_call_back: vk::DebugUtilsMessengerEXT,
@@ -29,6 +32,7 @@ pub struct AshCtx {
     in_flight_fence: Vec<vk::Fence>,
     image_in_flight: Vec<vk::Fence>,
     current_frame: usize,
+    phantom_data: std::marker::PhantomData<W>,
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -196,8 +200,14 @@ fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) 
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-impl AshCtx {
-    pub fn init() -> AshCtx {
+impl AshCtx<winit::window::Window> {
+    pub fn init() -> Self {
+        panic!("TODO: Not Implemented")
+    }
+}
+
+impl AshCtx<()> {
+    pub fn init() -> Self {
         let entry = Entry::new().unwrap();
         let app_name = CString::new("WaRVk").unwrap();
         let engine_name = CString::new("Smithay").unwrap();
@@ -753,11 +763,12 @@ impl AshCtx {
             in_flight_fence,
             image_in_flight,
             current_frame: 0,
+            phantom_data: std::marker::PhantomData,
         }
     }
 }
 
-impl Drop for AshCtx {
+impl<W> Drop for AshCtx<W> {
     fn drop(&mut self) {
         unsafe {
             //self.debug_utils_loader
@@ -767,7 +778,7 @@ impl Drop for AshCtx {
     }
 }
 
-impl RenderCtx for AshCtx {
+impl<W> RenderCtx for AshCtx<W> {
     fn render_windows(
         &mut self,
         token: CompositorToken<Roles>,
@@ -796,10 +807,10 @@ impl RenderCtx for AshCtx {
                     .wait_for_fences(&[self.image_in_flight[image_index]], true, u64::MAX)
                     .unwrap();
             }
-			self.image_in_flight[image_index] = self.in_flight_fence[self.current_frame];
+            self.image_in_flight[image_index] = self.in_flight_fence[self.current_frame];
 
-			let wait_semaphores = [self.image_available[self.current_frame]];
-			let signal_semaphores = [self.render_finished[self.current_frame]];
+            let wait_semaphores = [self.image_available[self.current_frame]];
+            let signal_semaphores = [self.render_finished[self.current_frame]];
 
             let submit_info = vk::SubmitInfo::builder()
                 .wait_semaphores(&wait_semaphores)
@@ -819,8 +830,8 @@ impl RenderCtx for AshCtx {
                 )
                 .unwrap();
 
-			let swapchains = [self.swapchain];
-			let indices = [image_index as u32];
+            let swapchains = [self.swapchain];
+            let indices = [image_index as u32];
 
             let present_info = vk::PresentInfoKHR::builder()
                 .wait_semaphores(&signal_semaphores)
