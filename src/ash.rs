@@ -32,7 +32,7 @@ where
     in_flight_fence: Vec<vk::Fence>,
     image_in_flight: Vec<vk::Fence>,
     current_frame: usize,
-    phantom_data: std::marker::PhantomData<W>,
+    data: W,
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -202,12 +202,88 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 impl AshCtx<winit::window::Window> {
     pub fn init() -> Self {
-        panic!("TODO: Not Implemented")
+        let events_loop = winit::event_loop::EventLoop::new();
+        let window = winit::window::WindowBuilder::new()
+            .with_title("Ash - Example")
+            .with_inner_size(winit::dpi::LogicalSize::new(f64::from(640), f64::from(480)))
+            .build(&events_loop)
+            .unwrap();
+
+        let surface_exts = ash_window::enumerate_required_extensions(&window).unwrap();
+
+        Self::agnostic_init(
+            window,
+            surface_exts,
+            |data, entry, instance, physical_device| {
+                (
+                    unsafe { ash_window::create_surface(entry, instance, data, None).unwrap() },
+                    vk::Extent2D::builder().width(640).height(480).build(),
+                )
+            },
+        )
     }
 }
 
 impl AshCtx<()> {
     pub fn init() -> Self {
+        let surface_exts = vec![khr::Surface::name(), khr::Display::name()];
+
+        Self::agnostic_init((), surface_exts, |_, entry, instance, physical_device| {
+            let display_loader = khr::Display::new(entry, instance);
+
+            let displays = unsafe {
+                display_loader
+                    .get_physical_device_display_properties(physical_device)
+                    .expect("Failed to enumerate displays")
+            };
+
+            for display in &displays {
+                println!("{:#?}", unsafe { CStr::from_ptr(display.display_name) });
+            }
+
+            let display = displays.iter().next().expect("No displays found");
+
+            let modes = unsafe {
+                display_loader
+                    .get_display_mode_properties(physical_device, display.display)
+                    .expect("Failed to get display modes")
+            };
+
+            for mode in &modes {
+                println!("{}", mode.parameters.refresh_rate);
+            }
+
+            let mode = modes.iter().next().expect("No mode found");
+
+            let display_planes = unsafe {
+                display_loader
+                    .get_physical_device_display_plane_properties(physical_device)
+                    .expect("Failed to get display planes")
+            };
+
+            let display_plane = display_planes.iter().next().expect("No plane found");
+
+            let surface = {
+                let create_info = vk::DisplaySurfaceCreateInfoKHR::builder()
+                    .display_mode(mode.display_mode)
+                    .plane_index(display_plane.current_stack_index)
+                    .transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
+                    .alpha_mode(vk::DisplayPlaneAlphaFlagsKHR::GLOBAL)
+                    .build();
+
+                unsafe { display_loader.create_display_plane_surface(&create_info, None) }
+                    .expect("Failed to create surface")
+            };
+            (surface, mode.parameters.visible_region)
+        })
+    }
+}
+
+impl<W> AshCtx<W> {
+    fn agnostic_init<F>(data: W, mut surface_exts: Vec<&std::ffi::CStr>, init_surface: F) -> Self
+    where
+        F: FnOnce(&W, &Entry, &ash::Instance, vk::PhysicalDevice) -> (vk::SurfaceKHR, vk::Extent2D),
+    {
         let entry = Entry::new().unwrap();
         let app_name = CString::new("WaRVk").unwrap();
         let engine_name = CString::new("Smithay").unwrap();
@@ -218,11 +294,8 @@ impl AshCtx<()> {
             .map(|name| name.as_ptr())
             .collect::<Vec<_>>();
 
-        let surface_exts = [
-            khr::Surface::name(),
-            khr::Display::name(),
-            ext::DebugUtils::name(),
-        ];
+        surface_exts.push(ext::DebugUtils::name());
+
         let surface_exts_raw = surface_exts
             .iter()
             .map(|name| name.as_ptr())
@@ -271,7 +344,7 @@ impl AshCtx<()> {
                 .enumerate_physical_devices()
                 .expect("Error enumerating physical devices")
         };
-        let display_loader = khr::Display::new(&entry, &instance);
+        //let display_loader = khr::Display::new(&entry, &instance);
         let surface_loader = khr::Surface::new(&entry, &instance);
 
         let (physical_device, queue_family_index) = unsafe {
@@ -296,7 +369,7 @@ impl AshCtx<()> {
                 .expect("Could not find suitable device.")
         };
 
-        let displays = unsafe {
+        /*let displays = unsafe {
             display_loader
                 .get_physical_device_display_properties(physical_device)
                 .expect("Failed to enumerate displays")
@@ -338,7 +411,9 @@ impl AshCtx<()> {
 
             unsafe { display_loader.create_display_plane_surface(&create_info, None) }
                 .expect("Failed to create surface")
-        };
+        };*/
+
+        let (surface, surface_extent) = init_surface(&data, &entry, &instance, physical_device);
 
         assert!(unsafe {
             surface_loader.get_physical_device_surface_support(
@@ -406,7 +481,7 @@ impl AshCtx<()> {
         }
 
         let surface_resolution = match surface_capabilities.current_extent.width {
-            std::u32::MAX => mode.parameters.visible_region,
+            std::u32::MAX => surface_extent,
             _ => surface_capabilities.current_extent,
         };
 
@@ -763,7 +838,7 @@ impl AshCtx<()> {
             in_flight_fence,
             image_in_flight,
             current_frame: 0,
-            phantom_data: std::marker::PhantomData,
+            data,
         }
     }
 }

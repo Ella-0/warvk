@@ -39,6 +39,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ash-window"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "905c4ca25f752e7ab3c3e8f2882625f876e4c3ea5feffbc83f81d697e043afd6"
+dependencies = [
+ "ash",
+ "raw-window-handle",
+ "raw-window-metal",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -817,6 +828,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-window-metal"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b0f43bdc87adef4ce827b07775c9e59716b52f369696e7fb4ec7c4acb4e20b1"
+dependencies = [
+ "cocoa",
+ "core-graphics",
+ "objc",
+ "raw-window-handle",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.1.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1102,6 +1125,7 @@ name = "warvk"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "ash-window",
  "calloop 0.6.4",
  "shaderc",
  "smithay",

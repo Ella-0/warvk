@@ -20,7 +20,7 @@ pub struct InputEvent {
 
 const MAX_KEYS: u16 = 112;
 
-const UK: &'static str = "<UK>";
+const UK: &str = "<UK>";
 
 const KEY_NAMES: [&'static str; MAX_KEYS as usize] = [
     UK,
@@ -293,7 +293,7 @@ pub fn init(loop_handle: LoopHandle<Ctx>) -> std::sync::mpsc::Receiver<InputEven
     std::thread::spawn(move || loop {
         let count = buf_reader.read_exact(&mut buf).expect("Read Failed");
         let event: InputEvent = unsafe { mem::transmute(buf) };
-        tx.send(event);
+        let _ = tx.send(event);
     });
 
     /*    loop_handle.insert_source(
