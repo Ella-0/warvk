@@ -11,10 +11,18 @@ fn main() {
 layout(location = 0) in vec2 inPosition;
 layout(location = 1) in vec3 inColour;
 
+
+const vec2 POSITIONS[4] = vec2[](
+    vec2(-1.0, -1.0),
+    vec2(-1.0, 1.0),
+    vec2(1.0, -1.0),
+    vec2(1.0, 1.0)
+);
+
 layout(location = 0) out vec3 fragColour;
 
 void main() {
-    gl_Position = vec4(inPosition, 0.0, 1.0);
+    gl_Position = vec4(POSITIONS[gl_VertexIndex], 0.0, 1.0);
     fragColour = inColour;
 }
 "#;
@@ -29,6 +37,7 @@ layout(location = 0) out vec4 outColour;
 
 void main() {
     outColour = vec4(fragColour, 1.0);
+    //outColour = vec4(1.0, 1.0, 1.0, 1.0);
 }
 
 "#;

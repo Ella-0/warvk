@@ -90,6 +90,7 @@ fn main() {
 
     let mut prefer_discrete = false;
     let mut winit = false;
+    let mut ash = false;
 
     for arg in args {
         match arg.as_str() {
@@ -98,6 +99,9 @@ fn main() {
             }
             "--discrete" => {
                 prefer_discrete = true;
+            }
+            "--ash" => {
+                ash = true;
             }
             _ => {
                 println!("Unsupported option {}", arg);
@@ -108,13 +112,21 @@ fn main() {
     let prefer_discrete = prefer_discrete;
     let winit = winit;
 
-    let ash_ctx = ash::AshCtx::<winit::window::Window>::init();
+    //let ash_ctx = ash::AshCtx::<winit::window::Window>::init();
 
-    /*warvk::<()>(if winit {
-        Box::new(VkCtx::<winit::window::Window>::init(prefer_discrete))
+    warvk::<()>(if winit {
+        if ash {
+            Box::new(ash::AshCtx::<winit::window::Window>::init())
+        } else {
+            Box::new(VkCtx::<winit::window::Window>::init(prefer_discrete))
+        }
     } else {
-        Box::new(VkCtx::<()>::init(prefer_discrete))
-    });*/
+        if ash {
+            Box::new(ash::AshCtx::<()>::init())
+        } else {
+            Box::new(VkCtx::<()>::init(prefer_discrete))
+        }
+    });
 
-    warvk::<()>(Box::new(ash_ctx));
+    //warvk::<()>(Box::new(ash_ctx));
 }

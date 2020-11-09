@@ -57,7 +57,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     };
 
     println!(
-        "{:?}:\n{:?} [{} ({})] : {}\n",
+        "║ {:?}:\n{:?} [{} ({})] : {}\n",
         message_severity,
         message_type,
         message_id_name,
@@ -140,6 +140,10 @@ fn create_vertex_buffer(
             pos: [-0.5, 0.5, 0.0, 0.0],
             color: [0.0, 0.0, 1.0, 1.0],
         },
+        Vertex {
+            pos: [-0.5, 0.5, 0.0, 0.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+        },
     ];
 
     unsafe {
@@ -185,6 +189,7 @@ fn create_render_pass(device: &ash::Device, swapchain_image_format: vk::Format) 
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .dst_subpass(0)
         .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::empty())
         .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
         .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
         .build()];
@@ -214,7 +219,7 @@ impl AshCtx<winit::window::Window> {
         Self::agnostic_init(
             window,
             surface_exts,
-            |data, entry, instance, physical_device| {
+            |data, entry, instance, _physical_device| {
                 (
                     unsafe { ash_window::create_surface(entry, instance, data, None).unwrap() },
                     vk::Extent2D::builder().width(640).height(480).build(),
@@ -326,8 +331,7 @@ impl<W> AshCtx<W> {
             let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
                 .message_severity(
                     vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-                        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
-                        | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
+                        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING,
                 )
                 .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
                 .pfn_user_callback(Some(vulkan_debug_callback));
@@ -516,7 +520,8 @@ impl<W> AshCtx<W> {
                 .image_format(surface_format.format)
                 .image_extent(surface_resolution)
                 .image_usage(
-                    vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+                    /*vk::ImageUsageFlags::TRANSFER_DST | */
+                    vk::ImageUsageFlags::COLOR_ATTACHMENT,
                 )
                 .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .pre_transform(pre_transform)
@@ -643,13 +648,13 @@ impl<W> AshCtx<W> {
                 vk::VertexInputAttributeDescription {
                     location: 0,
                     binding: 0,
-                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    format: vk::Format::R32G32_SFLOAT,
                     offset: offset_of!(Vertex, pos) as u32,
                 },
                 vk::VertexInputAttributeDescription {
                     location: 1,
                     binding: 0,
-                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    format: vk::Format::R32G32B32_SFLOAT,
                     offset: offset_of!(Vertex, color) as u32,
                 },
             ];
@@ -662,7 +667,7 @@ impl<W> AshCtx<W> {
             };
 
             let vertex_input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
-                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+                .topology(vk::PrimitiveTopology::TRIANGLE_STRIP)
                 .primitive_restart_enable(false);
 
             let viewport = [vk::Viewport::builder()
@@ -690,7 +695,7 @@ impl<W> AshCtx<W> {
                 .polygon_mode(vk::PolygonMode::FILL)
                 .line_width(1.0f32)
                 .cull_mode(vk::CullModeFlags::BACK)
-                .front_face(vk::FrontFace::CLOCKWISE)
+                .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
                 .depth_bias_enable(false)
                 .depth_bias_constant_factor(0.0f32)
                 .depth_bias_clamp(0.0f32)
@@ -713,8 +718,8 @@ impl<W> AshCtx<W> {
                         | vk::ColorComponentFlags::A,
                 )
                 .blend_enable(true)
-                .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
-                .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                .src_color_blend_factor(vk::BlendFactor::ONE)
+                .dst_color_blend_factor(vk::BlendFactor::ZERO)
                 .color_blend_op(vk::BlendOp::ADD)
                 .src_alpha_blend_factor(vk::BlendFactor::ONE)
                 .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
@@ -763,7 +768,8 @@ impl<W> AshCtx<W> {
             ret
         };
 
-        let (vertex_buffer, vertex_mem) = create_vertex_buffer(&instance, &device, physical_device);
+        let (vertex_buffer, _vertex_mem) =
+            create_vertex_buffer(&instance, &device, physical_device);
 
         for (command_buffer, framebuffer) in command_buffers.iter().zip(framebuffers) {
             let begin_info = vk::CommandBufferBeginInfo::builder().build();
@@ -772,14 +778,19 @@ impl<W> AshCtx<W> {
 
             let clear_colour = [vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0f32, 1.0f32, 0.0f32, 0.0f32],
+                    float32: [1.0f32, 1.0f32, 0.0f32, 0.0f32],
                 },
             }];
 
             let render_pass_info = vk::RenderPassBeginInfo::builder()
                 .render_pass(render_pass)
                 .framebuffer(framebuffer)
-                .render_area(vk::Rect2D::builder().extent(surface_resolution).build())
+                .render_area(
+                    vk::Rect2D::builder()
+                        .offset(vk::Offset2D { x: 0, y: 0 })
+                        .extent(surface_resolution)
+                        .build(),
+                )
                 .clear_values(&clear_colour)
                 .build();
 
@@ -795,7 +806,7 @@ impl<W> AshCtx<W> {
                     pipeline,
                 );
                 device.cmd_bind_vertex_buffers(*command_buffer, 0, &[vertex_buffer], &[0]);
-                device.cmd_draw(*command_buffer, 3, 1, 0, 0);
+                device.cmd_draw(*command_buffer, 4, 1, 0, 0);
                 device.cmd_end_render_pass(*command_buffer);
                 device.end_command_buffer(*command_buffer)
             }
