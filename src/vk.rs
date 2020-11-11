@@ -771,12 +771,10 @@ where
 							if let Some(data) = attributes.user_data
                                 .get::<std::cell::RefCell<crate::shell::SurfaceData>>() {
 								let mut data = data.borrow_mut();
-
-							
                                 // there is actually something to draw !
                                 if !data.texture {
                                     if let Some(buffer) = data.buffer.take() {
-                                    	let (texture, future) = self.load_shm_buffer(&buffer.clone(), data.image.clone());
+                                    	let (texture, future) = self.load_shm_buffer(&buffer, data.image.clone());
     									//self.load_shm_buffer_to_image(&buffer.clone());
     									data.texture = true;
     									data.image = Some(texture);
@@ -803,7 +801,6 @@ where
 
                                     let xpos = 2.0 * (self.dimensions[0] as f32 / 2.0) / (self.dimensions[0] as f32) - 1.0;
                                     let mut ypos = 1.0 - 2.0 * (self.dimensions[1] as f32 / 2.0) / (self.dimensions[1] as f32);
-                                    
 
     								let uniform_data = vs::ty::Data {
     									matrix: [
@@ -828,7 +825,7 @@ where
                                         self.pipeline.clone(),
                                         &self.dynamic_state,
                                         vec![self.vertex_buffer.clone()],
-                                        set.clone(),
+                                        set,
                                         (),
                                     ).expect("Failed to render shm");
 

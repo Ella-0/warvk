@@ -35,6 +35,9 @@ where
     data: W,
 }
 
+use smithay::reexports::wayland_server::{protocol::wl_buffer, Resource};
+use smithay::wayland::shm;
+
 unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -852,6 +855,30 @@ impl<W> AshCtx<W> {
             data,
         }
     }
+
+    fn load_shm_buffer(&mut self, buffer: &wl_buffer::WlBuffer, image: Option<ash::vk::Image>) {
+        shm::with_buffer_contents(buffer, |pool, data| {
+            let _pixelsize = 4;
+            let offset = data.offset as usize;
+            let width = data.width as usize;
+            let height = data.height as usize;
+            let stride = data.stride as usize;
+
+            let image = {};
+
+            let buffer = {
+                let info = vk::BufferCreateInfo {
+                    size: (stride * height) as u64,
+                    usage: vk::BufferUsageFlags::TRANSFER_SRC,
+                    sharing_mode: vk::SharingMode::EXCLUSIVE,
+                    ..Default::default()
+                };
+                unsafe {
+                    let _ = self.device.create_buffer(&info, None);
+                };
+            };
+        });
+    }
 }
 
 impl<W> Drop for AshCtx<W> {
@@ -867,7 +894,7 @@ impl<W> Drop for AshCtx<W> {
 impl<W> RenderCtx for AshCtx<W> {
     fn render_windows(
         &mut self,
-        token: CompositorToken<Roles>,
+        compositor_token: CompositorToken<Roles>,
         window_map: Rc<
             RefCell<WindowMap<Roles, for<'r> fn(&'r SurfaceAttributes) -> Option<(i32, i32)>>>,
         >,
@@ -897,6 +924,46 @@ impl<W> RenderCtx for AshCtx<W> {
 
             let wait_semaphores = [self.image_available[self.current_frame]];
             let signal_semaphores = [self.render_finished[self.current_frame]];
+
+            window_map.borrow().with_windows_from_bottom_to_top(
+                |toplevel_surface, initial_place| {
+                    if let Some(wl_surface) = toplevel_surface.get_surface() {
+                        let _ = compositor_token.with_surface_tree_upward(
+                            wl_surface,
+                            initial_place,
+                            |_surface, attributes, role, &(mut x, mut y)| {
+                                if let Some(data) = attributes
+                                    .user_data
+                                    .get::<std::cell::RefCell<crate::shell::SurfaceData>>()
+                                {
+                                    let mut data = data.borrow_mut();
+
+                                    if !data.texture {
+                                        if let Some(buffer) = data.buffer.take() {
+                                            //data.texture= true;
+                                            data.ash_image = None;
+                                            println!("buffer");
+
+                                            buffer.release();
+                                        }
+                                    }
+                                    if let Some(ref metadata) = data.ash_image {
+                                        smithay::wayland::compositor::TraversalAction::DoChildren((
+                                            x, y,
+                                        ))
+                                    } else {
+                                        smithay::wayland::compositor::TraversalAction::SkipChildren
+                                    }
+                                } else {
+                                    smithay::wayland::compositor::TraversalAction::SkipChildren
+                                }
+                            },
+                            |_, _, _, _| (),
+                            |_, _, _, _| true,
+                        );
+                    }
+                },
+            );
 
             let submit_info = vk::SubmitInfo::builder()
                 .wait_semaphores(&wait_semaphores)

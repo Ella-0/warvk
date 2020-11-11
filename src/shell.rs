@@ -133,6 +133,7 @@ pub struct SurfaceData {
     // make vulkan texture data
     pub texture: bool,
     pub image: Option<Arc<vulkano::image::StorageImage<vulkano::format::Format>>>,
+    pub ash_image: Option<ash::vk::Image>,
     pub frame_callback: Option<wl_callback::WlCallback>,
 }
 
