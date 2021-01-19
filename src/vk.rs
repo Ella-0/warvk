@@ -1,6 +1,6 @@
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
-    command_buffer::{AutoCommandBufferBuilder, DynamicState},
+    command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents},
     device::{Device, DeviceExtensions, Queue, QueuesIter},
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::immutable::ImmutableImage,
@@ -448,8 +448,8 @@ impl VkCtx<winit::window::Window> {
         use vulkano_win::VkSurfaceBuild;
         let event_loop = winit::event_loop::EventLoop::new();
         let surface = winit::window::WindowBuilder::new()
-            .with_inner_size(winit::dpi::LogicalSize::new(1270.0f32, 720.0f32))
-            .build_vk_surface(&event_loop, instance.clone())
+            .with_inner_size(winit::dpi::LogicalSize::new(1270.0f32, 720.0f32));
+        let surface = VkSurfaceBuild::build_vk_surface(surface, &event_loop, instance.clone())
             .unwrap();
         VkCtx::<winit::window::Window>::agnostic_init(
             physical,
@@ -758,7 +758,7 @@ where
         let mut futures: Vec<Box<dyn GpuFuture>> = Vec::new();
 
         let _ = builder
-            .begin_render_pass(self.framebuffers[image_num].clone(), false, clear_values)
+            .begin_render_pass(self.framebuffers[image_num].clone(), SubpassContents::Inline, clear_values)
             .unwrap();
 
         window_map.borrow().with_windows_from_bottom_to_top(
