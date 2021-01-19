@@ -22,6 +22,7 @@ where
     instance: Instance,
     debug_utils_loader: ext::DebugUtils,
     debug_call_back: vk::DebugUtilsMessengerEXT,
+	physical_device: vk::PhysicalDevice,
     device: ash::Device,
     swapchain_loader: khr::Swapchain,
     swapchain: vk::SwapchainKHR,
@@ -842,7 +843,8 @@ impl<W> AshCtx<W> {
             instance,
             debug_utils_loader,
             debug_call_back,
-            device,
+            physical_device,
+			device,
             swapchain_loader,
             swapchain,
             present_queue,
@@ -856,7 +858,7 @@ impl<W> AshCtx<W> {
         }
     }
 
-    fn load_shm_buffer(&mut self, buffer: &wl_buffer::WlBuffer, image: Option<ash::vk::Image>) {
+    fn load_shm_buffer(&mut self, buffer: &wl_buffer::WlBuffer, image: Option<ash::vk::Image>) -> vk::Buffer {
         shm::with_buffer_contents(buffer, |pool, data| {
             let _pixelsize = 4;
             let offset = data.offset as usize;
@@ -874,10 +876,26 @@ impl<W> AshCtx<W> {
                     ..Default::default()
                 };
                 unsafe {
-                    let _ = self.device.create_buffer(&info, None);
-                };
+                    let buffer = self.device.create_buffer(&info, None).unwrap();
+                    let memreq = self.device.get_buffer_memory_requirements(buffer);
+					let info = vk::MemoryAllocateInfo::builder()
+						.allocation_size(memreq.size)
+						.memory_type_index(get_memory_type(&self.instance, self.physical_device, memreq.memory_type_bits, vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)).build();
+					let mem = self.device.allocate_memory(&info, None).unwrap();
+					let mapped = self.device.map_memory(mem, 0, (stride*height) as u64, vk::MemoryMapFlags::empty()).unwrap();
+					{
+                        std::ptr::copy_nonoverlapping(
+                            pool[offset..pool.len()].as_ptr(),
+                            mapped as *mut u8,
+                            stride*height,
+                        );
+					}
+					self.device.unmap_memory(mem);
+					buffer
+                }
             };
-        });
+			buffer
+        }).unwrap()
     }
 }
 
