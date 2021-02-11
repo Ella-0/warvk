@@ -12,6 +12,7 @@ WaRVk is a Wayland compositor written in Rust using Vulkan.
 ## TODO
 
  - [ ] Ash backend - In progress
+ - [ ] `VK_EXT_physical_device_drm`
  - [ ] Refactor `window_map.rs` to better suit tiling
  - [ ] Refactor `shell.rs`
  - [ ] Implement Native *BSD input APIs
